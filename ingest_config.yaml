@@ -1,0 +1,41 @@
+canonical:
+  required: [timestamp, joint, metric, value]
+  defaults:
+    unit: deg
+    confidence: 1.0
+
+providers:
+  provider_a:
+    detect_any_header: ["time", "joint", "angle_deg"]
+    rename:
+      time: timestamp
+      joint: joint
+      angle_deg: value
+    set:
+      metric: angle
+      unit: deg
+
+  provider_b:
+    detect_any_header: ["frame", "joint_name", "theta"]
+    rename:
+      frame: frame
+      joint_name: joint
+      theta: value
+    set:
+      metric: angle
+      unit: rad
+    derived:
+      timestamp: "frame / 30.0"
+
+  wide_example:
+    detect_any_header: ["hip_deg", "knee_deg"]
+    wide_to_long:
+      id_vars: ["time"]
+      var_name: "feature"
+      value_name: "value"
+    rename:
+      time: timestamp
+    parse_feature:
+      pattern: "(?P<joint>\\w+?)_(?P<unit>deg|rad)"
+      set:
+        metric: angle
