@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>上傳到 GitHub：uploads/</title>
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,"Noto Sans TC",sans-serif;margin:0;background:#0b1020;color:#e6eefc}
+    .wrap{max-width:880px;margin:40px auto;padding:0 16px}
+    .card{background:#11162a;border:1px solid #24304f;border-radius:18px;padding:20px;box-shadow:0 10px 30px rgba(0,0,0,.25)}
+    h1{margin:0 0 8px;font-size:26px}
+    .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .row label{font-size:12px;color:#9fb0d4}
+    input,button{background:#091126;color:#e6eefc;border:1px solid #223058;border-radius:10px;padding:10px}
+    button{cursor:pointer;font-weight:700}
+    .files{margin-top:14px;border:1px dashed #2e3d64;border-radius:12px;padding:12px}
+    .item{padding:8px;border-bottom:1px solid #1d2a49}
+    .item:last-child{border-bottom:0}
+    .ok{color:#9fffb2}
+    .err{color:#ff9f9f}
+    a{color:#7cc7ff;text-decoration:none}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>直接上傳到 repo 的 <code>uploads/</code></h1>
+      <p style="color:#9fb0d4">純 GitHub：前端呼叫 GitHub API commit 檔案到 <code>uploads/</code>，觸發 Actions 自動清洗。</p>
+      <div class="row">
+        <div>
+          <label>帳號（owner）</label>
+          <input id="owner" value="sam001long" />
+        </div>
+        <div>
+          <label>儲存庫（repo）</label>
+          <input id="repo" value="db" />
+        </div>
+        <div>
+          <label>分支（branch）</label>
+          <input id="branch" value="main" />
+        </div>
+        <div>
+          <label>Fine-grained Token（只給這個 repo 的 Contents: Read/Write）</label>
+          <input id="token" type="password" placeholder="ghp_..." />
+          <div style="margin-top:6px;font-size:12px;color:#9fb0d4">
+            建議：用 <b>Fine-grained token</b>，<b>只勾這個 repo</b>、<b>Contents: Read/Write</b>，不要存到頁面（不會上傳，僅在你瀏覽器使用）。
+          </div>
+        </div>
+      </div>
+      <div class="files">
+        <input id="files" type="file" multiple accept=".csv,.tsv,.xlsx,.xls,.json" />
+        <div id="list"></div>
+      </div>
+      <div style="margin-top:12px;display:flex;gap:10px">
+        <button id="upload">上傳到 uploads/ 並建立 commit</button>
+        <a id="actionsLink" href="#" target="_blank">開啟 Actions</a>
+        <a id="uploadsLink" href="#" target="_blank">查看 uploads/</a>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const $ = (id)=>document.getElementById(id);
+    const list = $('list');
+    const filesInput = $('files');
+    const actionsLink = $('actionsLink');
+    const uploadsLink = $('uploadsLink');
+
+    function setLinks(){
+      const owner = $('owner').value.trim();
+      const repo = $('repo').value.trim();
+      actionsLink.href = `https://github.com/${owner}/${repo}/actions`;
+      uploadsLink.href = `https://github.com/${owner}/${repo}/tree/main/uploads`;
+    }
+    ['owner','repo'].forEach(id=>$(id).addEventListener('input', setLinks));
+    setLinks();
+
+    function uiItem(name){
+      const el = document.createElement('div');
+      el.className = 'item';
+      el.innerHTML = `<b>${name}</b> <span class="st" style="color:#9fb0d4">待上傳</span>`;
+      list.appendChild(el);
+      return {
+        ok(msg){ el.querySelector('.st').innerHTML = `<span class=ok>${msg}</span>`; },
+        err(msg){ el.querySelector('.st').innerHTML = `<span class=err>${msg}</span>`; }
+      };
+    }
+
+    function readFileAsBase64(file){
+      return new Promise((resolve, reject)=>{
+        const fr = new FileReader();
+        fr.onload = ()=>{
+          const s = String(fr.result);
+          const base64 = s.split(',')[1]; // data:*/*;base64,XXXX
+          resolve(base64);
+        };
+        fr.onerror = ()=>reject(fr.error);
+        fr.readAsDataURL(file);
+      });
+    }
+
+    async function pathExists(owner, repo, path, ref, token){
+      const url = `https://api.github.com/repos/${owner}/${repo}/contents/${encodeURIComponent(path)}?ref=${encodeURIComponent(ref)}`;
+      const res = await fetch(url, { headers: { 'Authorization': `Bearer ${token}`, 'Accept':'application/vnd.github+json' } });
+      if(res.status===200){ const j = await res.json(); return j.sha; }
+      return null; // 404 or others
+    }
+
+    async function putFile(owner, repo, path, contentBase64, message, branch, token, sha){
+      const url = `https://api.github.com/repos/${owner}/${repo}/contents/${encodeURIComponent(path)}`;
+      const body = { message, content: contentBase64, branch };
+      if(sha) body.sha = sha; // 更新既有檔案需要 sha
+      const res = await fetch(url, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/vnd.github+json'
+        },
+        body: JSON.stringify(body)
+      });
+      if(!res.ok){
+        const t = await res.text();
+        throw new Error(`HTTP ${res.status}: ${t}`);
+      }
+      return res.json();
+    }
+
+    $('upload').addEventListener('click', async ()=>{
+      const owner = $('owner').value.trim();
+      const repo = $('repo').value.trim();
+      const branch = $('branch').value.trim() || 'main';
+      const token = $('token').value.trim();
+      if(!owner || !repo || !token){ alert('owner / repo / token 都要填'); return; }
+      if(!filesInput.files.length){ alert('請選檔案'); return; }
+
+      for(const file of filesInput.files){
+        const row = uiItem(file.name);
+        try{
+          const base64 = await readFileAsBase64(file);
+          const safeName = file.name.replace(/[^\w.-]+/g,'_');
+          const path = `uploads/${Date.now()}_${safeName}`; // 防重名；重複內容會被清洗程序自動略過
+          const sha = await pathExists(owner, repo, path, branch, token); // 99% 新檔，不會有 sha
+          const commitMsg = `web upload: ${file.name}`;
+          await putFile(owner, repo, path, base64, commitMsg, branch, token, sha);
+          row.ok('已上傳，等待 Actions 處理');
+        }catch(e){ row.err(e.message); }
+      }
+    });
+  </script>
+</body>
+</html>
