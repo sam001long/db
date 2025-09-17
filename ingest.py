@@ -90,7 +90,7 @@ def main():
     seen = load_hashes()
     outputs = []
     for p in sorted(UP.glob("*")):
-        if p.is_dir(): 
+        if p.is_dir():
             continue
         data = p.read_bytes()
         h = sha256_bytes(data)
@@ -116,7 +116,6 @@ def main():
         if OUT_CSV.exists():
             existing = pd.read_csv(OUT_CSV)
             out = pd.concat([existing, out], ignore_index=True)
-            # 可選：去重
             out = out.drop_duplicates(subset=["timestamp","joint","metric","value"], keep="last")
         out.to_csv(OUT_CSV, index=False)
         print(f"✅ 輸出：{OUT_CSV}（{len(out)} 列）")
