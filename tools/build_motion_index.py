@@ -2,7 +2,7 @@
 import sys, json
 from pathlib import Path
 
-root = Path(sys.argv[1] if len(sys.argv) > 1 else "animation/motions")
+root = Path(sys.argv[1] if len(sys.argv) > 1 else "docs/animation/motions")
 items = []
 root.mkdir(parents=True, exist_ok=True)
 for p in sorted(root.glob("*.json")):
