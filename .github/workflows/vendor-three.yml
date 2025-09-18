@@ -1,7 +1,7 @@
-name: Vendor three.js into docs/animation/vendor
+name: Vendor three.js (module) into docs/animation/vendor
 
 on:
-  workflow_dispatch: {}   # 手動觸發
+  workflow_dispatch: {}
 
 permissions:
   contents: write
@@ -13,12 +13,12 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Setup Node (for npm)
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      - name: Install three@0.161.0 and copy vendor files
+      - name: Install three@0.161.0 and copy vendor files (module build)
         run: |
           set -e
           mkdir -p tmp-npm && cd tmp-npm
@@ -26,8 +26,9 @@ jobs:
           npm i three@0.161.0
           cd ..
           mkdir -p docs/animation/vendor
-          cp tmp-npm/node_modules/three/build/three.min.js docs/animation/vendor/three.min.js
-          cp tmp-npm/node_modules/three/examples/js/loaders/GLTFLoader.js docs/animation/vendor/GLTFLoader.js
+          # 使用 ESM 版本
+          cp tmp-npm/node_modules/three/build/three.module.js docs/animation/vendor/three.module.js
+          cp tmp-npm/node_modules/three/examples/jsm/loaders/GLTFLoader.js docs/animation/vendor/GLTFLoader.js
           echo "Files now in docs/animation/vendor:"
           ls -al docs/animation/vendor
 
@@ -35,6 +36,6 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/animation/vendor/three.min.js docs/animation/vendor/GLTFLoader.js
-          git commit -m "vendor: add three.min.js + GLTFLoader.js (0.161.0)" || echo "No changes to commit"
+          git add docs/animation/vendor/three.module.js docs/animation/vendor/GLTFLoader.js
+          git commit -m "vendor: add three.module.js + GLTFLoader.js (0.161.0)" || echo "No changes to commit"
           git push
