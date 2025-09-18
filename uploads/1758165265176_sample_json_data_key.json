@@ -1,0 +1,17 @@
+{
+  "meta": {
+    "source": "labX"
+  },
+  "data": [
+    {
+      "time": 0.0,
+      "joint": "hip",
+      "angle_deg": 11
+    },
+    {
+      "time": 0.1,
+      "joint": "knee",
+      "angle_deg": 6.5
+    }
+  ]
+}
