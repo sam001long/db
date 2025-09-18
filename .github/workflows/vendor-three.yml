@@ -1,4 +1,4 @@
-name: Vendor three.js (module) into docs/animation/vendor
+name: Vendor three.js (ESM) for docs/animation
 
 on:
   workflow_dispatch: {}
@@ -18,25 +18,38 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install three@0.161.0 and copy vendor files (ESM)
+      - name: Install three@0.161.0 and copy vendor files
         run: |
           set -e
           mkdir -p tmp-npm && cd tmp-npm
           npm init -y >/dev/null 2>&1
           npm i three@0.161.0
           cd ..
+
+          # 目錄
           mkdir -p docs/animation/vendor
+          mkdir -p docs/animation/utils
+
+          # 主要檔：three.module.js + GLTFLoader.js（jsm 版本）
           cp tmp-npm/node_modules/three/build/three.module.js docs/animation/vendor/three.module.js
           cp tmp-npm/node_modules/three/examples/jsm/loaders/GLTFLoader.js docs/animation/vendor/GLTFLoader.js
-          # ★ 修正 GLTFLoader 的套件別名，改為相對路徑
+
+          # 依賴：BufferGeometryUtils.js（放在 docs/animation/utils/）
+          cp tmp-npm/node_modules/three/examples/jsm/utils/BufferGeometryUtils.js docs/animation/utils/BufferGeometryUtils.js
+
+          # 修正兩個檔案裡的 "from 'three'" → 相對路徑
           sed -i "s/from 'three'/from '.\\/three.module.js'/" docs/animation/vendor/GLTFLoader.js
-          echo "Files now in docs/animation/vendor:"
+          sed -i "s/from 'three'/from '..\\/vendor\\/three.module.js'/" docs/animation/utils/BufferGeometryUtils.js
+
+          echo "== vendor =="
           ls -al docs/animation/vendor
+          echo "== utils =="
+          ls -al docs/animation/utils
 
       - name: Commit vendor files
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/animation/vendor/three.module.js docs/animation/vendor/GLTFLoader.js
-          git commit -m "vendor: three.module.js + GLTFLoader.js (patched import)" || echo "No changes to commit"
+          git add docs/animation/vendor/three.module.js docs/animation/vendor/GLTFLoader.js docs/animation/utils/BufferGeometryUtils.js
+          git commit -m "vendor: three ESM r161 (three.module.js, GLTFLoader.js, BufferGeometryUtils.js) + patched imports" || echo "No changes to commit"
           git push
