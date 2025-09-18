@@ -1,7 +1,7 @@
 name: Vendor three.js into docs/animation/vendor
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch: {}   # 手動觸發
 
 permissions:
   contents: write
@@ -13,31 +13,28 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Fetch three.js tag r161 robustly
+      - name: Setup Node (for npm)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install three@0.161.0 and copy vendor files
         run: |
           set -e
-          git clone --depth 1 https://github.com/mrdoob/three.js.git three-src
-          cd three-src
-          # 取回 tag，然後切到 r161（有些 runner 對 --branch tag 會挑剔）
-          git fetch --tags origin
-          git checkout -f tags/r161
-          test -f build/three.min.js
-          test -f examples/js/loaders/GLTFLoader.js
+          mkdir -p tmp-npm && cd tmp-npm
+          npm init -y >/dev/null 2>&1
+          npm i three@0.161.0
           cd ..
-
-      - name: Copy vendor files
-        run: |
           mkdir -p docs/animation/vendor
-          cp three-src/build/three.min.js docs/animation/vendor/three.min.js
-          cp three-src/examples/js/loaders/GLTFLoader.js docs/animation/vendor/GLTFLoader.js
-          echo "Copied files:"
+          cp tmp-npm/node_modules/three/build/three.min.js docs/animation/vendor/three.min.js
+          cp tmp-npm/node_modules/three/examples/js/loaders/GLTFLoader.js docs/animation/vendor/GLTFLoader.js
+          echo "Files now in docs/animation/vendor:"
           ls -al docs/animation/vendor
 
       - name: Commit vendor files
         run: |
-          set -e
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add docs/animation/vendor/three.min.js docs/animation/vendor/GLTFLoader.js
-          git commit -m "vendor: three.js r161 (three.min.js + GLTFLoader.js)" || echo "No changes to commit"
+          git commit -m "vendor: add three.min.js + GLTFLoader.js (0.161.0)" || echo "No changes to commit"
           git push
