@@ -30,45 +30,17 @@
   </div>
   <div id="debug"></div>
 
+  <!-- 使用「本機檔」而非 CDN -->
+  <script src="./vendor/three.min.js"></script>
+  <script src="./vendor/GLTFLoader.js"></script>
+
   <script>
-  // ====== CDN 自動備援載入 ======
   const $debug = document.getElementById('debug');
-  const cdn = {
-    three: [
-      "https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.min.js",
-      "https://unpkg.com/three@0.161.0/build/three.min.js",
-      "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.161.0/three.min.js"
-    ],
-    gltfLoader: [
-      "https://cdn.jsdelivr.net/npm/three@0.161.0/examples/js/loaders/GLTFLoader.js",
-      "https://unpkg.com/three@0.161.0/examples/js/loaders/GLTFLoader.js",
-      "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.161.0/examples/js/loaders/GLTFLoader.min.js"
-    ]
-  };
   function showErr(msg){ $debug.style.display='block'; $debug.textContent=msg; console.error(msg); }
-  function loadOne(url){ return new Promise((res,rej)=>{ const s=document.createElement('script'); s.src=url; s.onload=()=>res(url); s.onerror=()=>rej(new Error('fail '+url)); document.head.appendChild(s); }); }
-  async function loadWithFallback(urls, name){
-    let lastErr=null;
-    for(const u of urls){
-      try{ await loadOne(u); return u; }catch(e){ lastErr=e; }
-    }
-    throw new Error(`載入 ${name} 失敗（所有 CDN 都不可達）`);
-  }
 
-  (async function boot(){
-    try{
-      const u1 = await loadWithFallback(cdn.three, 'three.js');
-      const u2 = await loadWithFallback(cdn.gltfLoader, 'GLTFLoader');
-      console.log('Loaded:', u1, 'and', u2);
-      startApp();
-    }catch(e){
-      showErr(e.message + "\n請檢查公司網路是否封鎖外部 CDN。");
-    }
-  })();
-
-  // ====== 主程式 ======
-  function startApp(){
-    if(!window.THREE){ showErr('THREE 仍未定義'); return; }
+  (function boot(){
+    if(!window.THREE){ showErr('three.min.js 載入失敗或路徑錯誤（預期在 docs/animation/vendor/three.min.js）'); return; }
+    if(!THREE.GLTFLoader){ showErr('GLTFLoader.js 載入失敗或路徑錯誤（預期在 docs/animation/vendor/GLTFLoader.js）'); return; }
 
     const canvas = document.getElementById('c');
     const renderer = new THREE.WebGLRenderer({canvas, antialias:true});
@@ -92,7 +64,7 @@
       }
     }
 
-    // 骨頭面板（列出骨頭名）
+    // 骨頭面板
     const bonePanel = document.createElement('div');
     bonePanel.style.cssText='position:fixed;right:12px;bottom:12px;background:#0b1329;border:1px solid #1f2a4a;border-radius:12px;max-height:50vh;max-width:42vw;overflow:auto;padding:10px 12px;color:#cfe0ff;font:12px/1.4 system-ui;z-index:10';
     bonePanel.innerHTML='<b>Skeleton bones</b><input id="boneFilter" placeholder="filter" style="width:100%;margin:8px 0 6px;background:#091126;color:#e6eefc;border:1px solid #223058;border-radius:8px;padding:6px 8px"><div id="boneList" style="font-family:ui-monospace,Consolas,monospace"></div>';
@@ -167,8 +139,8 @@
     animate();
 
     loadMotionList().then(items => { if(items[0]) playMotion(items[0].file); });
-    console.log('✅ Page init OK');
-  }
+    console.log('✅ Page init OK (local vendor)');
+  })();
   </script>
 </body>
 </html>
