@@ -1,7 +1,7 @@
 name: Vendor three.js into docs/animation/vendor
 
 on:
-  workflow_dispatch: {}   # 手動觸發
+  workflow_dispatch: {}
 
 permissions:
   contents: write
@@ -13,13 +13,19 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Clone three.js (r161)
+      - name: Fetch three.js tag r161 robustly
         run: |
-          git clone --depth 1 --branch r161 https://github.com/mrdoob/three.js.git three-src
-          ls -al three-src/build
-          ls -al three-src/examples/js/loaders
+          set -e
+          git clone --depth 1 https://github.com/mrdoob/three.js.git three-src
+          cd three-src
+          # 取回 tag，然後切到 r161（有些 runner 對 --branch tag 會挑剔）
+          git fetch --tags origin
+          git checkout -f tags/r161
+          test -f build/three.min.js
+          test -f examples/js/loaders/GLTFLoader.js
+          cd ..
 
-      - name: Copy vendor files into docs/animation/vendor
+      - name: Copy vendor files
         run: |
           mkdir -p docs/animation/vendor
           cp three-src/build/three.min.js docs/animation/vendor/three.min.js
@@ -29,8 +35,9 @@ jobs:
 
       - name: Commit vendor files
         run: |
+          set -e
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add docs/animation/vendor/three.min.js docs/animation/vendor/GLTFLoader.js
-          git commit -m "chore: vendor three.js r161 (three.min.js + GLTFLoader.js)" || echo "No changes to commit"
+          git commit -m "vendor: three.js r161 (three.min.js + GLTFLoader.js)" || echo "No changes to commit"
           git push
