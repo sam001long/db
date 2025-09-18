@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Motion Player</title>
+  <style>
+    body{margin:0;background:#0b1020;color:#e6eefc;font-family:system-ui,-apple-system,Segoe UI,Roboto,"Noto Sans TC",sans-serif}
+    header{padding:12px 16px;background:#11162a;border-bottom:1px solid #24304f;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+    select,button{background:#091126;color:#e6eefc;border:1px solid #223058;border-radius:10px;padding:8px 10px}
+    .wrap{display:grid;grid-template-columns:1fr;grid-auto-rows:minmax(0,1fr);height:calc(100vh - 56px)}
+    #c{width:100%;height:100%;display:block}
+    .muted{color:#9fb0d4;font-size:12px}
+    /* Bone Inspector */
+    #bonePanel{position:fixed;right:12px;bottom:12px;background:#0b1329;border:1px solid #1f2a4a;border-radius:12px;max-height:50vh;max-width:42vw;overflow:auto;padding:10px 12px;color:#cfe0ff;font:12px/1.4 system-ui;z-index:10}
+    #bonePanel b{font-size:13px}
+    #bonePanel input{width:100%;margin:8px 0 6px;background:#091126;color:#e6eefc;border:1px solid #223058;border-radius:8px;padding:6px 8px}
+    #bonePanel .mono{font-family:ui-monospace,Consolas,monospace}
+  </style>
+</head>
+<body>
+  <header>
+    <div class="muted">模型：</div>
+    <span class="muted">docs/animation/assets/model.glb</span>
+    <div style="flex:1"></div>
+    <label class="muted">動作：</label>
+    <select id="motion"></select>
+    <button id="reload">重載清單</button>
+  </header>
+  <div class="wrap">
+    <canvas id="c"></canvas>
+  </div>
+
+  <!-- 右下角：骨頭檢視器 -->
+  <div id="bonePanel" hidden>
+    <b>Skeleton bones</b>
+    <input id="boneFilter" placeholder="filter (e.g. Left, Leg, Spine)"/>
+    <div id="boneList" class="mono"></div>
+  </div>
+
+  <!-- three.js 基本與 GLTFLoader -->
+  <script src="https://unpkg.com/three@0.161.0/build/three.min.js"></script>
+  <script src="https://unpkg.com/three@0.161.0/examples/js/loaders/GLTFLoader.js"></script>
+
+  <script>
+  const canvas = document.getElementById('c');
+  const renderer = new THREE.WebGLRenderer({canvas, antialias:true});
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x0b1020);
+
+  const camera = new THREE.PerspectiveCamera(50, 16/9, 0.1, 100);
+  camera.position.set(0, 1.4, 2);
+
+  const light = new THREE.HemisphereLight(0xffffff, 0x222233, 1.2);
+  scene.add(light);
+
+  let model, mixer, clock = new THREE.Clock();
+
+  function resize(){
+    const w = canvas.clientWidth, h = canvas.clientHeight;
+    if (canvas.width !== w || canvas.height !== h) {
+      renderer.setSize(w, h, false);
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+    }
+  }
+
+  // --- Bone Inspector helpers ---
+  const bonePanel = document.getElementById('bonePanel');
+  const boneList  = document.getElementById('boneList');
+  const boneFilter= document.getElementById('boneFilter');
+  function bonePath(node){
+    const names=[]; let p=node;
+    while(p){ names.push(p.name||p.type); p=p.parent; }
+    return names.reverse().join(' / ');
+  }
+  function renderBones(root){
+    const all=[];
+    root.traverse(o=>{
+      if(o.isBone){ all.push({name:o.name, path:bonePath(o)}); }
+    });
+    bonePanel.hidden=false;
+    const draw=(q='')=>{
+      const k=q.trim().toLowerCase();
+      const rows=(k?all.filter(x=>x.name.toLowerCase().includes(k)||x.path.toLowerCase().includes(k)):all)
+        .map(x=>`<div><b>${x.name}</b><br><span style="color:#8fa3c7">${x.path}</span></div>`).join('<hr style="border:0;border-top:1px solid #1f2a4a;margin:6px 0">');
+      boneList.innerHTML = rows || '<i style="color:#8fa3c7">no match</i>';
+    };
+    draw(); boneFilter.oninput = e=>draw(e.target.value);
+    console.group('Bones'); all.forEach(x=>console.log(x.name,'|',x.path)); console.groupEnd();
+  }
+
+  // 載入模型（如改檔名/路徑，這裡也要改）
+  const gltfLoader = new THREE.GLTFLoader();
+  gltfLoader.load('./assets/model.glb', (gltf)=>{
+    model = gltf.scene;
+    model.traverse(o=>{ if(o.isMesh){ o.castShadow = true; o.receiveShadow = true; } });
+    scene.add(model);
+    mixer = new THREE.AnimationMixer(model);
+    // 顯示骨頭名稱面板
+    renderBones(model);
+  }, undefined, (err)=>console.error('Load model error:', err));
+
+  async function loadMotionList(){
+    const res = await fetch('./motions/index.json', {cache:'no-store'});
+    const data = await res.json();
+    const sel = document.getElementById('motion');
+    sel.innerHTML = (data.items||[]).map(x=>`<option value="${x.file}">${x.label}</option>`).join('');
+    return data.items||[];
+  }
+
+  async function playMotion(file){
+    if(!mixer || !file) return;
+    const clipData = await fetch('./motions/'+file, {cache:'no-store'}).then(r=>r.json());
+    const clip = THREE.AnimationClip.parse(clipData);
+    mixer.stopAllAction();
+    const action = mixer.clipAction(clip);
+    action.reset().setLoop(THREE.LoopRepeat, Infinity).play();
+  }
+
+  document.getElementById('motion').addEventListener('change', (e)=>playMotion(e.target.value));
+  document.getElementById('reload').addEventListener('click', async ()=>{
+    const items = await loadMotionList();
+    if(items[0]) playMotion(items[0].file);
+  });
+
+  function animate(){
+    requestAnimationFrame(animate);
+    resize();
+    const dt = clock.getDelta();
+    if (mixer) mixer.update(dt);
+    renderer.render(scene, camera);
+  }
+  animate();
+
+  // 初次載入清單並自動播放第一個
+  loadMotionList().then(items => { if(items[0]) playMotion(items[0].file); });
+  </script>
+</body>
+</html>
