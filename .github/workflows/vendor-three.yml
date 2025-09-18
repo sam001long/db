@@ -10,15 +10,21 @@ jobs:
   vendor:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Download three.js (r161) into docs/animation/vendor
+      - name: Clone three.js (r161)
+        run: |
+          git clone --depth 1 --branch r161 https://github.com/mrdoob/three.js.git three-src
+          ls -al three-src/build
+          ls -al three-src/examples/js/loaders
+
+      - name: Copy vendor files into docs/animation/vendor
         run: |
           mkdir -p docs/animation/vendor
-          curl -L --fail -o docs/animation/vendor/three.min.js https://raw.githubusercontent.com/mrdoob/three.js/r161/build/three.min.js
-          curl -L --fail -o docs/animation/vendor/GLTFLoader.js https://raw.githubusercontent.com/mrdoob/three.js/r161/examples/js/loaders/GLTFLoader.js
-          echo "Files downloaded:"
+          cp three-src/build/three.min.js docs/animation/vendor/three.min.js
+          cp three-src/examples/js/loaders/GLTFLoader.js docs/animation/vendor/GLTFLoader.js
+          echo "Copied files:"
           ls -al docs/animation/vendor
 
       - name: Commit vendor files
