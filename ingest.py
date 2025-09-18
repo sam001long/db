@@ -79,7 +79,6 @@ def normalize_df(df: pd.DataFrame, provider: str, cfg) -> pd.DataFrame:
     if missing:
         raise ValueError(f"缺少必要欄位: {missing}")
 
-    # 留必要欄（外加可用欄）
     keep = list(set(
         need + list((CFG["canonical"].get("defaults") or {}).keys())
         + ["session_id", "subject_id", "activity", "unit", "metric"]
@@ -93,6 +92,9 @@ def load_hashes() -> set[str]:
     return set(x.strip() for x in HASH_LOG.read_text().splitlines() if x.strip())
 
 def save_hash(h: str):
+    # 確保檔案存在
+    if not HASH_LOG.exists():
+        HASH_LOG.touch()
     with open(HASH_LOG, "a", encoding="utf-8") as f:
         f.write(h + "\n")
 
@@ -138,19 +140,21 @@ def main():
         except Exception as e:
             print(f"[fail] {p.name}: {e}")
 
-    # 沒新資料：仍確保 Parquet 存在（由舊 CSV 轉一份）
+    # 若沒有新資料：若有舊 CSV 仍補一份 Parquet
     if not outputs:
         if OUT_CSV.exists():
             existing = pd.read_csv(OUT_CSV)
-            existing.to_parquet(OUT_PARQUET, index=False)
-            print(f"沒有新的資料；已由現有 CSV 生成 Parquet：{OUT_PARQUET}")
+            try:
+                existing.to_parquet(OUT_PARQUET, index=False)
+                print(f"沒有新資料；已由現有 CSV 生成 Parquet：{OUT_PARQUET}")
+            except Exception as e:
+                print(f"寫 Parquet 失敗（可能缺套件）：{e}")
         else:
             print("沒有新的資料可處理。")
         return
 
     # 整併、與舊資料合併
     out = pd.concat(outputs, ignore_index=True)
-
     if OUT_CSV.exists():
         existing = pd.read_csv(OUT_CSV)
         out = pd.concat([existing, out], ignore_index=True)
@@ -159,13 +163,16 @@ def main():
     dedup_keys = [c for c in ["timestamp", "joint", "metric", "value", "source_hash"] if c in out.columns]
     out = out.drop_duplicates(subset=dedup_keys, keep="last")
 
-    # 同時輸出 CSV 與 Parquet（Parquet 需要 pyarrow 或 fastparquet）
+    # 同時輸出 CSV 與 Parquet
     out.to_csv(OUT_CSV, index=False)
     try:
         out.to_parquet(OUT_PARQUET, index=False)
     except Exception as e:
-        print(f"寫 Parquet 失敗（可能缺套件）：{e}\n請在 Actions 補裝 pyarrow 或 fastparquet。")
+        print(f"寫 Parquet 失敗（可能缺套件）：{e}")
 
     print(f"✅ 累積輸出：{OUT_CSV}（{len(out)} 列）")
     if OUT_PARQUET.exists():
         print(f"✅ Parquet：{OUT_PARQUET}")
+
+if __name__ == "__main__":
+    main()
