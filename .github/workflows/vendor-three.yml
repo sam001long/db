@@ -18,7 +18,7 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install three@0.161.0 and copy vendor files (module build)
+      - name: Install three@0.161.0 and copy vendor files (ESM)
         run: |
           set -e
           mkdir -p tmp-npm && cd tmp-npm
@@ -26,9 +26,10 @@ jobs:
           npm i three@0.161.0
           cd ..
           mkdir -p docs/animation/vendor
-          # 使用 ESM 版本
           cp tmp-npm/node_modules/three/build/three.module.js docs/animation/vendor/three.module.js
           cp tmp-npm/node_modules/three/examples/jsm/loaders/GLTFLoader.js docs/animation/vendor/GLTFLoader.js
+          # ★ 修正 GLTFLoader 的套件別名，改為相對路徑
+          sed -i "s/from 'three'/from '.\\/three.module.js'/" docs/animation/vendor/GLTFLoader.js
           echo "Files now in docs/animation/vendor:"
           ls -al docs/animation/vendor
 
@@ -37,5 +38,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add docs/animation/vendor/three.module.js docs/animation/vendor/GLTFLoader.js
-          git commit -m "vendor: add three.module.js + GLTFLoader.js (0.161.0)" || echo "No changes to commit"
+          git commit -m "vendor: three.module.js + GLTFLoader.js (patched import)" || echo "No changes to commit"
           git push
