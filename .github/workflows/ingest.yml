@@ -37,7 +37,6 @@ jobs:
       - name: Ingest uploads -> db/measurements.csv/.parquet
         run: python ingest.py
 
-      # 若 tools 檔案已經在 repo，這步只做目錄確認；第一次缺檔可在此 cat > 建檔（建議直接放檔即可）
       - name: Ensure motions dir exists
         run: |
           mkdir -p animation/motions
