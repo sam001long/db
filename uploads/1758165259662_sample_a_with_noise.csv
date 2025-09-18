@@ -1,0 +1,7 @@
+time,joint,angle_deg,note
+0.0,hip,10,a
+0.1,hip,12,
+0.2,hip,15,x
+0.0,knee,5,
+0.1,knee,6,
+0.2,knee,7,
