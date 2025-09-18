@@ -1,4 +1,4 @@
-name: Ingest motion data
+name: Ingest motion data & build web motions
 
 on:
   push:
@@ -13,39 +13,46 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: ingest-and-build
+  cancel-in-progress: true
+
 jobs:
   run:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
       - name: Install deps
         run: |
           python -m pip install --upgrade pip
-          pip install pandas pyyaml openpyxl
+          pip install pandas pyyaml openpyxl pyarrow
 
-      - name: Ingest uploads -> db/measurements.csv
+      - name: Ingest uploads -> db/measurements.csv/.parquet
         run: python ingest.py
 
-      # --- 新增：把 canonical CSV 轉成前端可播的 motion JSON ---
-      - name: Prepare tools and motions dir
+      # 若 tools 檔案已經在 repo，這步只做目錄確認；第一次缺檔可在此 cat > 建檔（建議直接放檔即可）
+      - name: Ensure motions dir exists
         run: |
-          mkdir -p tools animation/motions
-          # 若你還沒把兩個 tools/** 檔案加進 repo，可在此 cat > 建檔；但建議直接放在 repo。
-          ls -al tools || true
+          mkdir -p animation/motions
           ls -al animation/motions || true
+          ls -al tools || true
 
-      - name: Convert CSV to motion JSON
+      - name: Convert canonical CSV to motion JSON
         run: |
           python tools/csv_to_motion_json.py db/measurements.csv animation/motions
 
       - name: Build motions index.json
         run: |
           python tools/build_motion_index.py animation/motions > animation/motions/index.json
+          echo "Motions index:"
+          cat animation/motions/index.json || true
 
       - name: Commit results (db/ and animation/motions)
         run: |
