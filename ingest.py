@@ -3,11 +3,15 @@ from pathlib import Path
 from typing import List, Dict, Any
 import pandas as pd
 
+# 路徑設定
 UP = Path("uploads")
 DB_DIR = Path("db")
 DB_DIR.mkdir(exist_ok=True)
 OUT_CSV = DB_DIR / "measurements.csv"
+OUT_PARQUET = DB_DIR / "measurements.parquet"
 HASH_LOG = DB_DIR / "_ingested_hashes.txt"  # 已處理過的檔案內容 hash 記錄
+
+# 規則
 CFG = yaml.safe_load(open("ingest_config.yaml", "r", encoding="utf-8"))
 
 def sha256_bytes(b: bytes) -> str:
@@ -63,18 +67,24 @@ def normalize_df(df: pd.DataFrame, provider: str, cfg) -> pd.DataFrame:
         for new_col, expr in rule["derived"].items():
             safe_locals = {c: df[c] for c in df.columns if c in expr}
             df[new_col] = eval(expr, {"__builtins__": {}}, safe_locals)
-    # 補上預設值
+
+    # 補上 canonical 預設值
     for k, v in (CFG["canonical"].get("defaults") or {}).items():
         if k not in df.columns:
             df[k] = v
+
     # 檢查必填
     need = CFG["canonical"]["required"]
     missing = [c for c in need if c not in df.columns]
     if missing:
         raise ValueError(f"缺少必要欄位: {missing}")
-    keep = list(set(need + list((CFG["canonical"].get("defaults") or {}).keys())))
-    extras = [c for c in ["session_id", "subject_id", "activity"] if c in df.columns]
-    keep = [c for c in keep + extras if c in df.columns]
+
+    # 留必要欄（外加可用欄）
+    keep = list(set(
+        need + list((CFG["canonical"].get("defaults") or {}).keys())
+        + ["session_id", "subject_id", "activity", "unit", "metric"]
+    ))
+    keep = [c for c in keep if c in df.columns]
     return df[keep].copy()
 
 def load_hashes() -> set[str]:
@@ -89,6 +99,7 @@ def save_hash(h: str):
 def main():
     seen = load_hashes()
     outputs = []
+
     for p in sorted(UP.glob("*")):
         if p.is_dir():
             continue
@@ -106,21 +117,55 @@ def main():
                     raise ValueError("無法偵測提供者；請在 ingest_config.yaml 增加規則")
                 provider_used = provider
                 norm = normalize_df(df, provider, CFG)
+
+                # ---- 單位統一：只針對角度（metric == 'angle'）的 rad → deg ----
+                if "metric" in norm.columns and "unit" in norm.columns:
+                    is_angle = norm["metric"].astype(str).str.lower().eq("angle")
+                    is_rad = norm["unit"].astype(str).str.lower().eq("rad")
+                    mask = is_angle & is_rad
+                    if mask.any():
+                        norm.loc[mask, "value"] = norm.loc[mask, "value"].astype(float) * 180.0 / 3.141592653589793
+                        norm.loc[mask, "unit"] = "deg"
+
+                # 記錄來源（更穩的去重與追蹤）
+                norm["source_hash"] = h
+                norm["source_file"] = p.name
+
                 outputs.append(norm)
+
             save_hash(h)
             print(f"[ok] {p.name} ({provider_used})")
         except Exception as e:
             print(f"[fail] {p.name}: {e}")
-    if outputs:
-        out = pd.concat(outputs, ignore_index=True)
+
+    # 沒新資料：仍確保 Parquet 存在（由舊 CSV 轉一份）
+    if not outputs:
         if OUT_CSV.exists():
             existing = pd.read_csv(OUT_CSV)
-            out = pd.concat([existing, out], ignore_index=True)
-            out = out.drop_duplicates(subset=["timestamp","joint","metric","value"], keep="last")
-        out.to_csv(OUT_CSV, index=False)
-        print(f"✅ 輸出：{OUT_CSV}（{len(out)} 列）")
-    else:
-        print("沒有新的資料可處理。")
+            existing.to_parquet(OUT_PARQUET, index=False)
+            print(f"沒有新的資料；已由現有 CSV 生成 Parquet：{OUT_PARQUET}")
+        else:
+            print("沒有新的資料可處理。")
+        return
 
-if __name__ == "__main__":
-    main()
+    # 整併、與舊資料合併
+    out = pd.concat(outputs, ignore_index=True)
+
+    if OUT_CSV.exists():
+        existing = pd.read_csv(OUT_CSV)
+        out = pd.concat([existing, out], ignore_index=True)
+
+    # 更穩的去重鍵（含來源雜湊；若未來加 session_id 也可一併放）
+    dedup_keys = [c for c in ["timestamp", "joint", "metric", "value", "source_hash"] if c in out.columns]
+    out = out.drop_duplicates(subset=dedup_keys, keep="last")
+
+    # 同時輸出 CSV 與 Parquet（Parquet 需要 pyarrow 或 fastparquet）
+    out.to_csv(OUT_CSV, index=False)
+    try:
+        out.to_parquet(OUT_PARQUET, index=False)
+    except Exception as e:
+        print(f"寫 Parquet 失敗（可能缺套件）：{e}\n請在 Actions 補裝 pyarrow 或 fastparquet。")
+
+    print(f"✅ 累積輸出：{OUT_CSV}（{len(out)} 列）")
+    if OUT_PARQUET.exists():
+        print(f"✅ Parquet：{OUT_PARQUET}")
