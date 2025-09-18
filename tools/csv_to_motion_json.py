@@ -1,14 +1,17 @@
 # tools/csv_to_motion_json.py
 import sys, json, math, os, pandas as pd, pathlib, datetime as dt
 
-# 將 canonical 的 joint 名稱 → 你的 glTF 骨頭名稱（先放示例；請改成你的實際骨頭名）
+# 將 canonical 的 joint 名稱 → 你的 glTF 骨頭名稱（請用骨頭面板看到的名字來改）
 BONE_MAP = {
   "hip": "Hips",
-  "knee": "RightUpLeg",     # ← 改成你的
-  "ankle": "RightLeg",      # ← 改成你的
+  "knee": "RightUpLeg",
+  "ankle": "RightLeg",
   "shoulder": "RightShoulder",
   "elbow": "RightArm",
   "wrist": "RightForeArm",
+  # 左右可自行擴充，例如：
+  # "l_knee": "LeftUpLeg",
+  # "r_knee": "RightUpLeg",
 }
 
 def eulerZdeg_to_quat(zdeg):
@@ -17,7 +20,7 @@ def eulerZdeg_to_quat(zdeg):
 
 def main():
   if len(sys.argv) < 3:
-    print("usage: python tools/csv_to_motion_json.py db/measurements.csv animation/motions")
+    print("usage: python tools/csv_to_motion_json.py db/measurements.csv docs/animation/motions")
     sys.exit(1)
 
   src = pathlib.Path(sys.argv[1])
@@ -33,20 +36,19 @@ def main():
   # 只處理角度（metric == angle）
   df = df[df["metric"] == "angle"].copy()
   if df.empty:
-    # 輸出空的 demo 以免前端報錯
     empty = {"name":"Empty","duration":0,"tracks":[]}
     (out_dir / "motion_demo.json").write_text(json.dumps(empty, ensure_ascii=False), encoding="utf-8")
     print("no angle metric; wrote empty motion")
     return
 
-  # 統一單位：如果還是 rad 就轉成 deg
+  # 統一單位：若仍有 rad → 轉 deg（保險）
   if "unit" in df.columns:
     mask = df["unit"].astype(str).str.lower().eq("rad")
     if mask.any():
       df.loc[mask, "value"] = df.loc[mask, "value"].astype(float) * 180.0 / math.pi
       df.loc[mask, "unit"] = "deg"
 
-  # 依 joint 分組，為每個骨頭做 quaternion track（簡化：以 Z 軸旋轉示例）
+  # 依 joint 分組，為每個骨頭做 quaternion track（簡化：以 Z 軸角度示範）
   tracks = []
   for joint, g in df.groupby("joint"):
     bone = BONE_MAP.get(str(joint))
@@ -70,7 +72,6 @@ def main():
     "tracks": tracks
   }
 
-  # 檔名：motion_YYYYmmdd_HHMMSS.json
   ts = dt.datetime.utcnow().strftime("%Y%m%d_%H%M%S")
   out_path = out_dir / f"motion_{ts}.json"
   out_path.write_text(json.dumps(clip, ensure_ascii=False), encoding="utf-8")
