@@ -37,6 +37,21 @@ jobs:
       - name: Ingest uploads -> db/measurements.csv/.parquet
         run: python ingest.py
 
+      # 保險：就算 ingest.py 沒新資料，也從 CSV 產 1 份 Parquet
+      - name: Ensure Parquet exists (CSV -> Parquet)
+        run: |
+          python - <<'PY'
+          import pandas as pd, pathlib
+          csv = pathlib.Path('db/measurements.csv')
+          if csv.exists():
+              df = pd.read_csv(csv)
+              df.to_parquet('db/measurements.parquet', index=False)
+              print('Wrote db/measurements.parquet with', len(df), 'rows')
+          else:
+              print('CSV not found, skip parquet generation')
+          PY
+
+      # 下面三步是做動畫用（如果你沒放 tools/** 可先跳過）
       - name: Ensure motions dir exists
         run: |
           mkdir -p animation/motions
@@ -45,18 +60,26 @@ jobs:
 
       - name: Convert canonical CSV to motion JSON
         run: |
-          python tools/csv_to_motion_json.py db/measurements.csv animation/motions
+          if [ -f tools/csv_to_motion_json.py ]; then
+            python tools/csv_to_motion_json.py db/measurements.csv animation/motions
+          else
+            echo "tools/csv_to_motion_json.py not found, skip"
+          fi
 
       - name: Build motions index.json
         run: |
-          python tools/build_motion_index.py animation/motions > animation/motions/index.json
-          echo "Motions index:"
-          cat animation/motions/index.json || true
+          if [ -f tools/build_motion_index.py ]; then
+            python tools/build_motion_index.py animation/motions > animation/motions/index.json
+            echo "Motions index:"
+            cat animation/motions/index.json || true
+          else
+            echo "tools/build_motion_index.py not found, skip"
+          fi
 
       - name: Commit results (db/ and animation/motions)
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add db animation/motions
+          git add db animation/motions || true
           git commit -m "Update measurements and motion JSON [skip ci]" || echo "No changes to commit"
           git push
