@@ -1,4 +1,4 @@
-name: Ingest motion data & build web motions
+name: Ingest motion data & build web motions (docs)
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
       - 'ingest.py'
       - 'ingest_config.yaml'
       - 'tools/**'
-      - 'animation/**'
+      - 'docs/animation/**'
   workflow_dispatch:
 
 permissions:
@@ -37,7 +37,6 @@ jobs:
       - name: Ingest uploads -> db/measurements.csv/.parquet
         run: python ingest.py
 
-      # 保險：就算 ingest.py 沒新資料，也從 CSV 產 1 份 Parquet
       - name: Ensure Parquet exists (CSV -> Parquet)
         run: |
           python - <<'PY'
@@ -51,35 +50,25 @@ jobs:
               print('CSV not found, skip parquet generation')
           PY
 
-      # 下面三步是做動畫用（如果你沒放 tools/** 可先跳過）
-      - name: Ensure motions dir exists
+      - name: Prepare docs motions dir
         run: |
-          mkdir -p animation/motions
-          ls -al animation/motions || true
-          ls -al tools || true
+          mkdir -p docs/animation/motions
+          ls -al docs/animation || true
 
-      - name: Convert canonical CSV to motion JSON
+      - name: Convert canonical CSV to motion JSON (to docs/)
         run: |
-          if [ -f tools/csv_to_motion_json.py ]; then
-            python tools/csv_to_motion_json.py db/measurements.csv animation/motions
-          else
-            echo "tools/csv_to_motion_json.py not found, skip"
-          fi
+          python tools/csv_to_motion_json.py db/measurements.csv docs/animation/motions
 
-      - name: Build motions index.json
+      - name: Build motions index.json (to docs/)
         run: |
-          if [ -f tools/build_motion_index.py ]; then
-            python tools/build_motion_index.py animation/motions > animation/motions/index.json
-            echo "Motions index:"
-            cat animation/motions/index.json || true
-          else
-            echo "tools/build_motion_index.py not found, skip"
-          fi
+          python tools/build_motion_index.py docs/animation/motions > docs/animation/motions/index.json
+          echo "Motions index:"
+          cat docs/animation/motions/index.json || true
 
-      - name: Commit results (db/ and animation/motions)
+      - name: Commit results (db/ and docs/animation/motions)
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add db animation/motions || true
+          git add db docs/animation/motions || true
           git commit -m "Update measurements and motion JSON [skip ci]" || echo "No changes to commit"
           git push
