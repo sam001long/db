@@ -1,0 +1,30 @@
+name: Vendor three.js into docs/animation/vendor
+
+on:
+  workflow_dispatch: {}   # 手動觸發
+
+permissions:
+  contents: write
+
+jobs:
+  vendor:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download three.js (r161) into docs/animation/vendor
+        run: |
+          mkdir -p docs/animation/vendor
+          curl -L --fail -o docs/animation/vendor/three.min.js https://raw.githubusercontent.com/mrdoob/three.js/r161/build/three.min.js
+          curl -L --fail -o docs/animation/vendor/GLTFLoader.js https://raw.githubusercontent.com/mrdoob/three.js/r161/examples/js/loaders/GLTFLoader.js
+          echo "Files downloaded:"
+          ls -al docs/animation/vendor
+
+      - name: Commit vendor files
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/animation/vendor/three.min.js docs/animation/vendor/GLTFLoader.js
+          git commit -m "chore: vendor three.js r161 (three.min.js + GLTFLoader.js)" || echo "No changes to commit"
+          git push
