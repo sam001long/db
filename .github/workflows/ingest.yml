@@ -6,6 +6,8 @@ on:
       - 'uploads/**'
       - 'ingest.py'
       - 'ingest_config.yaml'
+      - 'tools/**'
+      - 'animation/**'
   workflow_dispatch:
 
 permissions:
@@ -16,19 +18,39 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
       - name: Install deps
         run: |
           python -m pip install --upgrade pip
           pip install pandas pyyaml openpyxl
-      - name: Ingest
+
+      - name: Ingest uploads -> db/measurements.csv
         run: python ingest.py
-      - name: Commit results
+
+      # --- 新增：把 canonical CSV 轉成前端可播的 motion JSON ---
+      - name: Prepare tools and motions dir
+        run: |
+          mkdir -p tools animation/motions
+          # 若你還沒把兩個 tools/** 檔案加進 repo，可在此 cat > 建檔；但建議直接放在 repo。
+          ls -al tools || true
+          ls -al animation/motions || true
+
+      - name: Convert CSV to motion JSON
+        run: |
+          python tools/csv_to_motion_json.py db/measurements.csv animation/motions
+
+      - name: Build motions index.json
+        run: |
+          python tools/build_motion_index.py animation/motions > animation/motions/index.json
+
+      - name: Commit results (db/ and animation/motions)
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git commit -m "Ingest data [skip ci]" || echo "No changes to commit"
+          git add db animation/motions
+          git commit -m "Update measurements and motion JSON [skip ci]" || echo "No changes to commit"
           git push
