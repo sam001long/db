@@ -25,8 +25,25 @@ jobs:
 
       - name: Install deps
         run: |
+          python -V
           python -m pip install --upgrade pip
           pip install pandas
+
+      - name: Show CSV head (if exists)
+        run: |
+          if [ -f "db/measurements.csv" ]; then
+            echo "=== HEAD db/measurements.csv ==="
+            head -n 10 db/measurements.csv || true
+            echo "=== COLS (Python quick check) ==="
+            python - << 'PY'
+import pandas as pd
+df = pd.read_csv("db/measurements.csv")
+print(list(df.columns))
+print(df.head(3).to_string(index=False))
+PY
+          else
+            echo "db/measurements.csv not found"
+          fi
 
       - name: Generate motion JSON (if measurements.csv exists)
         run: |
@@ -34,6 +51,7 @@ jobs:
           if [ -f "db/measurements.csv" ]; then
             echo "Found db/measurements.csv → generating motion JSON..."
             python tools/csv_to_motion_json.py
+            echo "=== motions dir ==="
             ls -al docs/animation/motions || true
           else
             echo "::notice::db/measurements.csv not found — skipping conversion step."
@@ -42,6 +60,7 @@ jobs:
       - name: Build motion index (always)
         run: |
           python tools/build_motion_index.py
+          echo "=== index.json ==="
           cat docs/animation/motions/index.json
 
       - name: Commit outputs
