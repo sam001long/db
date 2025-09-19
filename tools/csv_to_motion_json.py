@@ -3,16 +3,23 @@ import sys, json, math, os, pandas as pd, pathlib, datetime as dt
 
 # 將 canonical 的 joint 名稱 → 你的 glTF 骨頭名稱（請用骨頭面板看到的名字來改）
 BONE_MAP = {
-  "hip": "Hips",
-  "knee": "RightUpLeg",
-  "ankle": "RightLeg",
-  "shoulder": "RightShoulder",
-  "elbow": "RightArm",
-  "wrist": "RightForeArm",
-  # 左右可自行擴充，例如：
-  # "l_knee": "LeftUpLeg",
-  # "r_knee": "RightUpLeg",
+  # 中軸
+  "hip":        "mixamorig:Hips",
+  # 右腿（大腿/小腿/腳）
+  "knee":       "mixamorig:RightUpLeg",
+  "ankle":      "mixamorig:RightLeg",
+  # 右臂（肩/上臂/前臂/手腕）
+  "shoulder":   "mixamorig:RightShoulder",
+  "elbow":      "mixamorig:RightArm",
+  "wrist":      "mixamorig:RightForeArm",
+  # 左半身（如果你的數據有左右分，請一併保留）
+  "l_knee":     "mixamorig:LeftUpLeg",
+  "l_ankle":    "mixamorig:LeftLeg",
+  "l_shoulder": "mixamorig:LeftShoulder",
+  "l_elbow":    "mixamorig:LeftArm",
+  "l_wrist":    "mixamorig:LeftForeArm",
 }
+
 
 def eulerZdeg_to_quat(zdeg):
   z = math.radians(float(zdeg))
