@@ -28,13 +28,18 @@ jobs:
           python -m pip install --upgrade pip
           pip install pandas
 
-      # 這裡假設 db/measurements.csv 已由你既有流程產生
-      - name: Generate motion JSONs (Mixamo/Xbot mapping)
+      - name: Generate motion JSON (if measurements.csv exists)
         run: |
-          python tools/csv_to_motion_json.py
-          ls -al docs/animation/motions
+          set -e
+          if [ -f "db/measurements.csv" ]; then
+            echo "Found db/measurements.csv → generating motion JSON..."
+            python tools/csv_to_motion_json.py
+            ls -al docs/animation/motions || true
+          else
+            echo "::notice::db/measurements.csv not found — skipping conversion step."
+          fi
 
-      - name: Build motion index
+      - name: Build motion index (always)
         run: |
           python tools/build_motion_index.py
           cat docs/animation/motions/index.json
@@ -44,5 +49,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add docs/animation/motions/*.json || true
-          git commit -m "build: motions & index (Mixamo mapping)" || echo "no changes"
+          git commit -m "build: motions & index" || echo "no changes"
           git push
