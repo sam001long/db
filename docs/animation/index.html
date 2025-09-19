@@ -42,20 +42,17 @@
     import { OrbitControls } from './vendor/OrbitControls.js';
 
     const $debug = document.getElementById('debug');
-    const err = (msg)=>{ $debug.style.display='block'; $debug.textContent=msg; console.error(msg); };
-    const info = (msg)=>{ console.log(msg); };
+    const showErr = (msg)=>{ $debug.style.display='block'; $debug.textContent=msg; console.error(msg); };
 
-    // --- 場景 + 控制 ---
+    // 場景 + 控制
     const canvas = document.getElementById('c');
     const renderer = new THREE.WebGLRenderer({canvas, antialias:true});
     const scene = new THREE.Scene(); scene.background = new THREE.Color(0x0b1020);
     const camera = new THREE.PerspectiveCamera(50, 16/9, .1, 100); camera.position.set(0,1.4,2);
     const controls = new OrbitControls(camera, canvas);
-    controls.enableDamping = true; controls.dampingFactor = 0.07;
-    controls.target.set(0,1.1,0);
+    controls.enableDamping = true; controls.dampingFactor = 0.07; controls.target.set(0,1.1,0);
     scene.add(new THREE.HemisphereLight(0xffffff,0x222233,1.2));
-    const clock = new THREE.Clock();
-    let model, mixer;
+    const clock = new THREE.Clock(); let model, mixer;
 
     function resize(){
       const w=canvas.clientWidth, h=canvas.clientHeight;
@@ -64,7 +61,7 @@
       }
     }
 
-    // --- 骨頭面板 ---
+    // 骨頭面板
     const $bones = document.getElementById('bones');
     const $boneList = document.getElementById('boneList');
     const $boneFilter = document.getElementById('boneFilter');
@@ -81,21 +78,18 @@
       draw(); $boneFilter.oninput = e=>draw(e.target.value);
     }
 
-    // --- 載模型 ---
+    // 模型
     const gltfLoader = new GLTFLoader();
     try{
       const gltf = await gltfLoader.loadAsync('./assets/model.glb');
-      model = gltf.scene;
-      model.traverse(o=>{ if(o.isMesh){ o.castShadow = true; o.receiveShadow = true; } });
+      model = gltf.scene; model.traverse(o=>{ if(o.isMesh){ o.castShadow = true; o.receiveShadow = true; } });
       scene.add(model);
       mixer = new THREE.AnimationMixer(model);
       renderBones(model);
-      info('model ok');
-    }catch(e){ err('模型載入失敗：'+e.message); }
+    }catch(e){ showErr('模型載入失敗：'+e.message); }
 
-    // --- 動作清單 & 播放（含淨化） ---
+    // 動作清單 + 播放（含淨化）
     const sel = document.getElementById('motion');
-
     function sanitizeClipJson(json){
       const out = { name: json.name || 'clip', tracks: [] };
       const safeNum = (v)=> typeof v === 'number' && Number.isFinite(v);
@@ -110,24 +104,16 @@
           const n = Math.min(times.length, Math.floor(values.length/4));
           if(n<=0) continue;
           out.tracks.push({ name:t.name, type:'quaternion',
-            times: times.slice(0,n),
-            values: values.slice(0,n*4)
-          });
-        } else if(type==='vector'){
+            times: times.slice(0,n), values: values.slice(0,n*4) });
+        }else if(type==='vector'){
           const n = Math.min(times.length, Math.floor(values.length/3));
           if(n<=0) continue;
           out.tracks.push({ name:t.name, type:'vector',
-            times: times.slice(0,n),
-            values: values.slice(0,n*3)
-          });
-        } else {
-          // 其他型別直接略過，避免 three 解析失敗
-          continue;
+            times: times.slice(0,n), values: values.slice(0,n*3) });
         }
       }
       return out;
     }
-
     async function loadMotionList(){
       try{
         const res = await fetch('./motions/index.json', {cache:'no-store'});
@@ -136,43 +122,24 @@
         const items = data.items || [];
         sel.innerHTML = items.map(x=>`<option value="${x.file}">${x.label}</option>`).join('');
         return items;
-      }catch(e){
-        err('讀取 motions/index.json 失敗：'+e.message);
-        sel.innerHTML = '';
-        return [];
-      }
+      }catch(e){ showErr('讀取 motions/index.json 失敗：'+e.message); sel.innerHTML=''; return []; }
     }
-
     async function playMotion(file){
       if(!mixer || !file) return;
       try{
         const raw = await fetch('./motions/'+file, {cache:'no-store'}).then(r=>r.json());
         const cleaned = sanitizeClipJson(raw);
-        if(!cleaned.tracks.length){
-          err('此動作沒有可用的 tracks（可能骨頭名全部對不到或數據為空）');
-          return;
-        }
+        if(!cleaned.tracks.length){ showErr('此動作沒有可用的 tracks（可能骨頭名對不到或數據為空）'); return; }
         const clip = THREE.AnimationClip.parse(cleaned);
-        mixer.stopAllAction();
-        mixer.clipAction(clip).reset().setLoop(THREE.LoopRepeat, Infinity).play();
+        mixer.stopAllAction(); mixer.clipAction(clip).reset().setLoop(THREE.LoopRepeat, Infinity).play();
         $debug.style.display='none';
-        info(`play ${file}: ${cleaned.tracks.length} tracks`);
-      }catch(e){
-        err('載入動作檔失敗：'+e.message+'（可能為資料缺軸或骨頭名不相符）');
-      }
+      }catch(e){ showErr('載入動作檔失敗：'+e.message); }
     }
-
     sel.addEventListener('change', e=>playMotion(e.target.value));
-    document.getElementById('reload').addEventListener('click', async ()=>{
-      const items = await loadMotionList();
-      if(items[0]) playMotion(items[0].file);
-    });
+    document.getElementById('reload').addEventListener('click', async ()=>{ const items = await loadMotionList(); if(items[0]) playMotion(items[0].file); });
 
-    // --- 迴圈 ---
     (function tick(){ requestAnimationFrame(tick); resize(); controls.update(); if(mixer) mixer.update(clock.getDelta()); renderer.render(scene,camera); })();
-
-    // 初次載入清單並自動播放第一個
-    loadMotionList().then(items => { if(items[0]) playMotion(items[0].file); });
+    loadMotionList().then(items=>{ if(items[0]) playMotion(items[0].file); });
   </script>
 </body>
 </html>
