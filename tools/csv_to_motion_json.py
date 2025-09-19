@@ -215,7 +215,8 @@ def assemble_single_angle(df: pd.DataFrame) -> Dict[str, Dict[str, List[float]]]
 
     df2 = df[["timestamp","joint",angle_col]].copy()
     df2["axis"] = axis_series
-    df2 = df2.dropna(subset=["timestamp","joint",angle_col","axis"])
+   df2 = df2.dropna(subset=["timestamp","joint", angle_col, "axis"])
+
 
     out: Dict[str, Dict[str, List[float]]] = {}
     for (j, ax), g in df2.groupby(["joint","axis"]):
