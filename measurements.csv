@@ -1,0 +1,4 @@
+timestamp,joint,metric,value,unit,session_id
+0,Hips,angle_x,0,deg,quicktest
+1,Hips,angle_y,30,deg,quicktest
+2,Hips,angle_y,0,deg,quicktest
