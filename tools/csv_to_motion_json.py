@@ -1,88 +1,82 @@
-# tools/csv_to_motion_json.py
-import sys, json, math, os, pandas as pd, pathlib, datetime as dt
+# ===== Mixamo / Xbot 對應表（完整貼上這段） =====
 
-# 將 canonical 的 joint 名稱 → 你的 glTF 骨頭名稱（請用骨頭面板看到的名字來改）
-BONE_MAP = {
-  # 中軸
-  "hip":        "mixamorig:Hips",
-  # 右腿（大腿/小腿/腳）
-  "knee":       "mixamorig:RightUpLeg",
-  "ankle":      "mixamorig:RightLeg",
-  # 右臂（肩/上臂/前臂/手腕）
-  "shoulder":   "mixamorig:RightShoulder",
-  "elbow":      "mixamorig:RightArm",
-  "wrist":      "mixamorig:RightForeArm",
-  # 左半身（如果你的數據有左右分，請一併保留）
-  "l_knee":     "mixamorig:LeftUpLeg",
-  "l_ankle":    "mixamorig:LeftLeg",
-  "l_shoulder": "mixamorig:LeftShoulder",
-  "l_elbow":    "mixamorig:LeftArm",
-  "l_wrist":    "mixamorig:LeftForeArm",
+# 1) 上游資料裡常見的關節名字（或大小寫/縮寫） → 規格化的 key
+JOINT_ALIASES = {
+    # 中軸 / 骨盆
+    "hip": "hips", "hips": "hips", "pelvis": "hips", "Hips": "hips",
+
+    # 右腿
+    "RightUpLeg": "right_up_leg", "RightLeg": "right_leg", "RightFoot": "right_foot",
+    "rightupleg": "right_up_leg", "rightleg": "right_leg", "rightfoot": "right_foot",
+
+    # 左腿
+    "LeftUpLeg": "left_up_leg", "LeftLeg": "left_leg", "LeftFoot": "left_foot",
+    "leftupleg": "left_up_leg", "leftleg": "left_leg", "leftfoot": "left_foot",
+
+    # 右臂
+    "RightShoulder": "right_shoulder", "RightArm": "right_arm",
+    "RightForeArm": "right_fore_arm", "RightHand": "right_hand",
+    "rightshoulder": "right_shoulder", "rightarm": "right_arm",
+    "rightforearm": "right_fore_arm", "righthand": "right_hand",
+
+    # 左臂
+    "LeftShoulder": "left_shoulder", "LeftArm": "left_arm",
+    "LeftForeArm": "left_fore_arm", "LeftHand": "left_hand",
+    "leftshoulder": "left_shoulder", "leftarm": "left_arm",
+    "leftforearm": "left_fore_arm", "lefthand": "left_hand",
+
+    # 脊柱/頸/頭（若你的資料有）
+    "Spine": "spine", "Spine1": "spine1", "Spine2": "spine2",
+    "Neck": "neck", "Head": "head",
 }
 
+# 2) 規格化 key → Xbot（Mixamo）的真正骨頭名稱
+BONE_MAP = {
+    # pelvis / spine
+    "hips":        "mixamorigHips",
+    "spine":       "mixamorigSpine",
+    "spine1":      "mixamorigSpine1",
+    "spine2":      "mixamorigSpine2",
+    "neck":        "mixamorigNeck",
+    "head":        "mixamorigHead",
 
-def eulerZdeg_to_quat(zdeg):
-  z = math.radians(float(zdeg))
-  return [0.0, 0.0, math.sin(z/2.0), math.cos(z/2.0)]  # Z 軸旋轉四元數
+    # right leg
+    "right_up_leg":"mixamorigRightUpLeg",
+    "right_leg":   "mixamorigRightLeg",
+    "right_foot":  "mixamorigRightFoot",
 
-def main():
-  if len(sys.argv) < 3:
-    print("usage: python tools/csv_to_motion_json.py db/measurements.csv docs/animation/motions")
-    sys.exit(1)
+    # left leg
+    "left_up_leg": "mixamorigLeftUpLeg",
+    "left_leg":    "mixamorigLeftLeg",
+    "left_foot":   "mixamorigLeftFoot",
 
-  src = pathlib.Path(sys.argv[1])
-  out_dir = pathlib.Path(sys.argv[2])
-  out_dir.mkdir(parents=True, exist_ok=True)
+    # right arm
+    "right_shoulder":"mixamorigRightShoulder",
+    "right_arm":     "mixamorigRightArm",
+    "right_fore_arm":"mixamorigRightForeArm",
+    "right_hand":    "mixamorigRightHand",
 
-  if not src.exists():
-    print(f"not found: {src}")
-    sys.exit(1)
+    # left arm
+    "left_shoulder":"mixamorigLeftShoulder",
+    "left_arm":     "mixamorigLeftArm",
+    "left_fore_arm":"mixamorigLeftForeArm",
+    "left_hand":    "mixamorigLeftHand",
+}
 
-  df = pd.read_csv(src)
-
-  # 只處理角度（metric == angle）
-  df = df[df["metric"] == "angle"].copy()
-  if df.empty:
-    empty = {"name":"Empty","duration":0,"tracks":[]}
-    (out_dir / "motion_demo.json").write_text(json.dumps(empty, ensure_ascii=False), encoding="utf-8")
-    print("no angle metric; wrote empty motion")
-    return
-
-  # 統一單位：若仍有 rad → 轉 deg（保險）
-  if "unit" in df.columns:
-    mask = df["unit"].astype(str).str.lower().eq("rad")
-    if mask.any():
-      df.loc[mask, "value"] = df.loc[mask, "value"].astype(float) * 180.0 / math.pi
-      df.loc[mask, "unit"] = "deg"
-
-  # 依 joint 分組，為每個骨頭做 quaternion track（簡化：以 Z 軸角度示範）
-  tracks = []
-  for joint, g in df.groupby("joint"):
-    bone = BONE_MAP.get(str(joint))
-    if not bone:
-      continue
-    g = g.sort_values("timestamp")
-    times = g["timestamp"].astype(float).tolist()
-    quats = []
-    for zdeg in g["value"].astype(float).tolist():
-      quats.extend(eulerZdeg_to_quat(zdeg))
-    tracks.append({
-      "name": f"{bone}.quaternion",
-      "type": "quaternion",
-      "times": times,
-      "values": quats
-    })
-
-  clip = {
-    "name": "MotionClip",
-    "duration": float(df["timestamp"].max()) if len(df) else 0.0,
-    "tracks": tracks
-  }
-
-  ts = dt.datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-  out_path = out_dir / f"motion_{ts}.json"
-  out_path.write_text(json.dumps(clip, ensure_ascii=False), encoding="utf-8")
-  print(f"Wrote {out_path}")
-
-if __name__ == "__main__":
-  main()
+def canon_key(name: str) -> str:
+    """
+    把上游資料的關節名（大小寫/帶冒號/縮寫）正規化成我們的 key。
+    """
+    if not name:
+        return name
+    k = str(name).strip()
+    # 常見變體快速對齊
+    if k in JOINT_ALIASES:       # 精準命中（大小寫敏感）
+        return JOINT_ALIASES[k]
+    k2 = k.replace(":", "")      # 有些會寫成 mixamorig:Hips（雖然我們不會直接拿這個）
+    if k2 in JOINT_ALIASES:
+        return JOINT_ALIASES[k2]
+    kl = k.lower()
+    if kl in JOINT_ALIASES:
+        return JOINT_ALIASES[kl]
+    return kl  # fallback：至少不要噴錯
