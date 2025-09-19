@@ -1,0 +1,15 @@
+{
+  "name": "demo",
+  "tracks": [
+    {
+      "name": "mixamorigHips.quaternion",
+      "type": "quaternion",
+      "times": [0, 1, 2],
+      "values": [
+        0, 0, 0, 1,
+        0, 0.2588190451, 0, 0.9659258263,
+        0, 0, 0, 1
+      ]
+    }
+  ]
+}
