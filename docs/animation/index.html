@@ -3,124 +3,129 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Animation – health check</title>
+  <title>Motion Player</title>
   <style>
-    body{margin:0;background:#0b1020;color:#e6eefc;font-family:system-ui,-apple-system,Segoe UI,Roboto,"Noto Sans TC",sans-serif}
-    header{padding:12px 16px;background:#11162a;border-bottom:1px solid #24304f}
-    .muted{color:#9fb0d4}
-    #log{padding:14px 16px;line-height:1.6}
-    .ok{color:#9fffb2} .bad{color:#ff9f9f}
-    #app{height:calc(100vh - 92px)}
+    :root{--bg:#0b1020;--muted:#9fb0d4}
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:#e6eefc;font-family:system-ui,-apple-system,Segoe UI,Roboto,"Noto Sans TC",sans-serif}
+    header{padding:12px 16px;background:#11162a;border-bottom:1px solid #24304f;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+    select,button{background:#091126;color:#e6eefc;border:1px solid #223058;border-radius:10px;padding:8px 10px}
+    .muted{color:var(--muted);font-size:12px}
+    .wrap{height:calc(100vh - 56px)}
     #c{width:100%;height:100%;display:block}
+    #debug{position:fixed;left:12px;bottom:12px;background:#2b0f17;border:1px solid #7a2735;color:#ffd2d2;padding:8px 10px;border-radius:10px;max-width:60ch;display:none;white-space:pre-wrap;z-index:20}
+    #bones{position:fixed;right:12px;bottom:12px;background:#0b1329;border:1px solid #1f2a4a;border-radius:12px;max-height:50vh;max-width:42vw;overflow:auto;padding:10px 12px;color:#cfe0ff;font:12px/1.4 system-ui;z-index:10}
+    #bones hr{border:0;border-top:1px solid #1f2a4a;margin:6px 0}
+    #bones input{width:100%;margin:8px 0 6px;background:#091126;color:#e6eefc;border:1px solid #223058;border-radius:8px;padding:6px 8px}
   </style>
 </head>
 <body>
   <header>
-    <div class="muted">docs/animation/index.html</div>
-    <div class="muted">這頁會先檢查檔案是否存在 → 全部 OK 才載入 three.js 與播放器</div>
+    <div class="muted">模型：</div>
+    <span class="muted">docs/animation/assets/model.glb</span>
+    <div style="flex:1"></div>
+    <label class="muted">動作：</label>
+    <select id="motion"></select>
+    <button id="reload">重載清單</button>
   </header>
-  <div id="log"></div>
-  <div id="app" hidden>
-    <div style="padding:8px 16px">
-      模型：<span class="muted">docs/animation/assets/model.glb</span>　
-      動作：<select id="motion"></select>
-      <button id="reload">重載清單</button>
-    </div>
-    <canvas id="c"></canvas>
+  <div class="wrap"><canvas id="c"></canvas></div>
+  <div id="debug"></div>
+  <div id="bones" hidden>
+    <b>Skeleton bones</b>
+    <input id="boneFilter" placeholder="filter">
+    <div id="boneList" style="font-family:ui-monospace,Consolas,monospace"></div>
   </div>
 
   <script type="module">
-    const log = document.getElementById('log');
-    const say = (html)=> log.insertAdjacentHTML('beforeend', html + '<br>');
+    import * as THREE from './vendor/three.module.js';
+    import { GLTFLoader } from './vendor/GLTFLoader.js';
 
-    async function exists(url){
-      try{
-        const r = await fetch(url, {method:'HEAD', cache:'no-store'});
-        return r.ok;
-      }catch{ return false }
-    }
+    const $debug = document.getElementById('debug');
+    const err = (msg)=>{ $debug.style.display='block'; $debug.textContent=msg; console.error(msg); };
 
-    // 逐項檢查
-    const files = {
-      three: './vendor/three.module.js',
-      loader:'./vendor/GLTFLoader.js',
-      util:  './utils/BufferGeometryUtils.js',
-      model: './assets/model.glb',
-      index: './motions/index.json'
-    };
-
-    const results = {};
-    for (const [k,u] of Object.entries(files)){
-      results[k] = await exists(u);
-      say(`${u} → ${results[k] ? '<span class=ok>OK</span>' : '<span class=bad>缺失</span>'}`);
-    }
-
-    // 必要條件：three、loader、model 存在；index.json 可稍後再產
-    if (!results.three || !results.loader || !results.model){
-      say('<br><b class=bad>❌ 以上至少有一個必要檔缺失，播放器不會載入。</b><br>請確認：\
-      <br>• vendor/three.module.js、vendor/GLTFLoader.js \
-      <br>• assets/model.glb（可用我給的 Xbot/Fox workflow 先放示範檔）\
-      <br>• （選配）utils/BufferGeometryUtils.js');
-      throw new Error('missing files');
-    }
-
-    // 真的載入 three 與 GLTFLoader（ESM）
-    say('<br><span class=ok>開始載入播放器…</span>');
-    const THREE = await import('./vendor/three.module.js');
-    const { GLTFLoader } = await import('./vendor/GLTFLoader.js');
-
-    // --- 以下是精簡播放器（僅為驗證能否跑起來） ---
-    const app = document.getElementById('app'); app.hidden = false;
+    // --- 基本場景 ---
     const canvas = document.getElementById('c');
     const renderer = new THREE.WebGLRenderer({canvas, antialias:true});
     const scene = new THREE.Scene(); scene.background = new THREE.Color(0x0b1020);
     const camera = new THREE.PerspectiveCamera(50, 16/9, .1, 100); camera.position.set(0,1.4,2);
     scene.add(new THREE.HemisphereLight(0xffffff,0x222233,1.2));
-    const clock = new THREE.Clock(); let model, mixer;
+    const clock = new THREE.Clock();
+    let model, mixer;
 
-    function resize(){ const w=canvas.clientWidth, h=canvas.clientHeight;
-      if(canvas.width!==w || canvas.height!==h){ renderer.setSize(w,h,false); camera.aspect=w/h; camera.updateProjectionMatrix(); } }
+    function resize(){
+      const w=canvas.clientWidth, h=canvas.clientHeight;
+      if(canvas.width!==w || canvas.height!==h){
+        renderer.setSize(w,h,false); camera.aspect=w/h; camera.updateProjectionMatrix();
+      }
+    }
 
-    // 載模型
-    const loader = new GLTFLoader();
+    // --- 骨頭面板 ---
+    const $bones = document.getElementById('bones');
+    const $boneList = document.getElementById('boneList');
+    const $boneFilter = document.getElementById('boneFilter');
+    const bonePath=(node)=>{ const names=[]; let p=node; while(p){ names.push(p.name||p.type); p=p.parent; } return names.reverse().join(' / '); };
+    function renderBones(root){
+      const all=[]; root.traverse(o=>{ if(o.isBone){ all.push({name:o.name, path:bonePath(o)}); } });
+      $bones.hidden=false;
+      const draw=(q='')=>{
+        const k=q.trim().toLowerCase();
+        const rows=(k?all.filter(x=>x.name.toLowerCase().includes(k)||x.path.toLowerCase().includes(k)):all)
+          .map(x=>`<div><b>${x.name}</b><br><span style="color:#8fa3c7">${x.path}</span></div>`).join('<hr>');
+        $boneList.innerHTML = rows || '<i style="color:#8fa3c7">no match</i>';
+      };
+      draw(); $boneFilter.oninput = e=>draw(e.target.value);
+      console.group('Bones'); all.forEach(x=>console.log(x.name,'|',x.path)); console.groupEnd();
+    }
+
+    // --- 載入模型 ---
+    const gltfLoader = new GLTFLoader();
     try{
-      const gltf = await loader.loadAsync('./assets/model.glb');
-      model = gltf.scene; scene.add(model); mixer = new THREE.AnimationMixer(model);
-      say('<span class=ok>模型載入成功</span>');
-    }catch(e){
-      say('<span class=bad>模型載入失敗：</span>' + e.message);
-      throw e;
-    }
+      const gltf = await gltfLoader.loadAsync('./assets/model.glb');
+      model = gltf.scene;
+      model.traverse(o=>{ if(o.isMesh){ o.castShadow = true; o.receiveShadow = true; } });
+      scene.add(model);
+      mixer = new THREE.AnimationMixer(model);
+      renderBones(model);
+    }catch(e){ err('模型載入失敗：'+e.message); }
 
-    // 動作清單（可沒有）
-    let motions = [];
-    if (results.index){
+    // --- 動作清單 & 播放 ---
+    const sel = document.getElementById('motion');
+    async function loadMotionList(){
       try{
-        const data = await (await fetch('./motions/index.json', {cache:'no-store'})).json();
-        motions = data.items || [];
-        say('motions/index.json：<span class=ok>OK</span>，共有 ' + motions.length + ' 個動作');
-      }catch{ say('motions/index.json：<span class=bad>讀取失敗</span>'); }
-    }else{
-      say('motions/index.json：<span class=bad>尚未產生（先跑 ingest workflow）</span>');
+        const res = await fetch('./motions/index.json', {cache:'no-store'});
+        if(!res.ok) throw new Error('HTTP '+res.status);
+        const data = await res.json();
+        const items = data.items || [];
+        sel.innerHTML = items.map(x=>`<option value="${x.file}">${x.label}</option>`).join('');
+        return items;
+      }catch(e){
+        err('讀取 motions/index.json 失敗：'+e.message);
+        sel.innerHTML = '';
+        return [];
+      }
     }
-
-    // 播放第一個（若有）
     async function playMotion(file){
       if(!mixer || !file) return;
-      const clipData = await (await fetch('./motions/'+file, {cache:'no-store'})).json();
-      const clip = THREE.AnimationClip.parse(clipData);
-      mixer.stopAllAction(); mixer.clipAction(clip).reset().setLoop(THREE.LoopRepeat, Infinity).play();
+      try{
+        const clipData = await fetch('./motions/'+file, {cache:'no-store'}).then(r=>r.json());
+        const clip = THREE.AnimationClip.parse(clipData);
+        mixer.stopAllAction();
+        mixer.clipAction(clip).reset().setLoop(THREE.LoopRepeat, Infinity).play();
+      }catch(e){
+        err('載入動作檔失敗：'+e.message+'\n（多半是骨頭命名不相符，請確認 BONE_MAP）');
+      }
     }
-    const sel = document.getElementById('motion');
-    sel.innerHTML = motions.map(x=>`<option value="${x.file}">${x.label}</option>`).join('');
-    document.getElementById('reload').onclick = async ()=>{
-      const data = await (await fetch('./motions/index.json', {cache:'no-store'})).json();
-      motions = data.items||[]; sel.innerHTML = motions.map(x=>`<option value="${x.file}">${x.label}</option>`).join('');
-      if(motions[0]) playMotion(motions[0].file);
-    };
-    if(motions[0]) playMotion(motions[0].file);
+    sel.addEventListener('change', e=>playMotion(e.target.value));
+    document.getElementById('reload').addEventListener('click', async ()=>{
+      const items = await loadMotionList();
+      if(items[0]) playMotion(items[0].file);
+    });
 
+    // --- 迴圈 ---
     (function tick(){ requestAnimationFrame(tick); resize(); if(mixer) mixer.update(clock.getDelta()); renderer.render(scene,camera); })();
+
+    // 初次載入清單並自動播放第一個
+    loadMotionList().then(items => { if(items[0]) playMotion(items[0].file); });
   </script>
 </body>
 </html>
