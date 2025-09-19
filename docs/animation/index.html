@@ -39,15 +39,20 @@
   <script type="module">
     import * as THREE from './vendor/three.module.js';
     import { GLTFLoader } from './vendor/GLTFLoader.js';
+    import { OrbitControls } from './vendor/OrbitControls.js';
 
     const $debug = document.getElementById('debug');
     const err = (msg)=>{ $debug.style.display='block'; $debug.textContent=msg; console.error(msg); };
+    const info = (msg)=>{ console.log(msg); };
 
-    // --- 基本場景 ---
+    // --- 場景 + 控制 ---
     const canvas = document.getElementById('c');
     const renderer = new THREE.WebGLRenderer({canvas, antialias:true});
     const scene = new THREE.Scene(); scene.background = new THREE.Color(0x0b1020);
     const camera = new THREE.PerspectiveCamera(50, 16/9, .1, 100); camera.position.set(0,1.4,2);
+    const controls = new OrbitControls(camera, canvas);
+    controls.enableDamping = true; controls.dampingFactor = 0.07;
+    controls.target.set(0,1.1,0);
     scene.add(new THREE.HemisphereLight(0xffffff,0x222233,1.2));
     const clock = new THREE.Clock();
     let model, mixer;
@@ -74,10 +79,9 @@
         $boneList.innerHTML = rows || '<i style="color:#8fa3c7">no match</i>';
       };
       draw(); $boneFilter.oninput = e=>draw(e.target.value);
-      console.group('Bones'); all.forEach(x=>console.log(x.name,'|',x.path)); console.groupEnd();
     }
 
-    // --- 載入模型 ---
+    // --- 載模型 ---
     const gltfLoader = new GLTFLoader();
     try{
       const gltf = await gltfLoader.loadAsync('./assets/model.glb');
@@ -86,10 +90,44 @@
       scene.add(model);
       mixer = new THREE.AnimationMixer(model);
       renderBones(model);
+      info('model ok');
     }catch(e){ err('模型載入失敗：'+e.message); }
 
-    // --- 動作清單 & 播放 ---
+    // --- 動作清單 & 播放（含淨化） ---
     const sel = document.getElementById('motion');
+
+    function sanitizeClipJson(json){
+      const out = { name: json.name || 'clip', tracks: [] };
+      const safeNum = (v)=> typeof v === 'number' && Number.isFinite(v);
+      for(const t of (json.tracks||[])){
+        if(!t || !t.name || !Array.isArray(t.times) || !Array.isArray(t.values)) continue;
+        const type = t.type || (t.name.endsWith('.quaternion') ? 'quaternion' : '');
+        if(!type) continue;
+        const times = t.times.filter(safeNum);
+        const values = t.values.filter(safeNum);
+        if(!times.length) continue;
+        if(type==='quaternion'){
+          const n = Math.min(times.length, Math.floor(values.length/4));
+          if(n<=0) continue;
+          out.tracks.push({ name:t.name, type:'quaternion',
+            times: times.slice(0,n),
+            values: values.slice(0,n*4)
+          });
+        } else if(type==='vector'){
+          const n = Math.min(times.length, Math.floor(values.length/3));
+          if(n<=0) continue;
+          out.tracks.push({ name:t.name, type:'vector',
+            times: times.slice(0,n),
+            values: values.slice(0,n*3)
+          });
+        } else {
+          // 其他型別直接略過，避免 three 解析失敗
+          continue;
+        }
+      }
+      return out;
+    }
+
     async function loadMotionList(){
       try{
         const res = await fetch('./motions/index.json', {cache:'no-store'});
@@ -104,17 +142,26 @@
         return [];
       }
     }
+
     async function playMotion(file){
       if(!mixer || !file) return;
       try{
-        const clipData = await fetch('./motions/'+file, {cache:'no-store'}).then(r=>r.json());
-        const clip = THREE.AnimationClip.parse(clipData);
+        const raw = await fetch('./motions/'+file, {cache:'no-store'}).then(r=>r.json());
+        const cleaned = sanitizeClipJson(raw);
+        if(!cleaned.tracks.length){
+          err('此動作沒有可用的 tracks（可能骨頭名全部對不到或數據為空）');
+          return;
+        }
+        const clip = THREE.AnimationClip.parse(cleaned);
         mixer.stopAllAction();
         mixer.clipAction(clip).reset().setLoop(THREE.LoopRepeat, Infinity).play();
+        $debug.style.display='none';
+        info(`play ${file}: ${cleaned.tracks.length} tracks`);
       }catch(e){
-        err('載入動作檔失敗：'+e.message+'\n（多半是骨頭命名不相符，請確認 BONE_MAP）');
+        err('載入動作檔失敗：'+e.message+'（可能為資料缺軸或骨頭名不相符）');
       }
     }
+
     sel.addEventListener('change', e=>playMotion(e.target.value));
     document.getElementById('reload').addEventListener('click', async ()=>{
       const items = await loadMotionList();
@@ -122,7 +169,7 @@
     });
 
     // --- 迴圈 ---
-    (function tick(){ requestAnimationFrame(tick); resize(); if(mixer) mixer.update(clock.getDelta()); renderer.render(scene,camera); })();
+    (function tick(){ requestAnimationFrame(tick); resize(); controls.update(); if(mixer) mixer.update(clock.getDelta()); renderer.render(scene,camera); })();
 
     // 初次載入清單並自動播放第一個
     loadMotionList().then(items => { if(items[0]) playMotion(items[0].file); });
