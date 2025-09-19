@@ -30,15 +30,15 @@ jobs:
           mkdir -p docs/animation/vendor
           mkdir -p docs/animation/utils
 
-          # 主要檔：three.module.js + GLTFLoader.js（jsm 版本）
+          # 主要檔（ESM）
           cp tmp-npm/node_modules/three/build/three.module.js docs/animation/vendor/three.module.js
           cp tmp-npm/node_modules/three/examples/jsm/loaders/GLTFLoader.js docs/animation/vendor/GLTFLoader.js
-
-          # 依賴：BufferGeometryUtils.js（放在 docs/animation/utils/）
+          cp tmp-npm/node_modules/three/examples/jsm/controls/OrbitControls.js docs/animation/vendor/OrbitControls.js
           cp tmp-npm/node_modules/three/examples/jsm/utils/BufferGeometryUtils.js docs/animation/utils/BufferGeometryUtils.js
 
           # 修正兩個檔案裡的 "from 'three'" → 相對路徑
           sed -i "s/from 'three'/from '.\\/three.module.js'/" docs/animation/vendor/GLTFLoader.js
+          sed -i "s/from 'three'/from '.\\/three.module.js'/" docs/animation/vendor/OrbitControls.js
           sed -i "s/from 'three'/from '..\\/vendor\\/three.module.js'/" docs/animation/utils/BufferGeometryUtils.js
 
           echo "== vendor =="
@@ -50,6 +50,6 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/animation/vendor/three.module.js docs/animation/vendor/GLTFLoader.js docs/animation/utils/BufferGeometryUtils.js
-          git commit -m "vendor: three ESM r161 (three.module.js, GLTFLoader.js, BufferGeometryUtils.js) + patched imports" || echo "No changes to commit"
+          git add docs/animation/vendor/three.module.js docs/animation/vendor/GLTFLoader.js docs/animation/vendor/OrbitControls.js docs/animation/utils/BufferGeometryUtils.js
+          git commit -m "vendor: three ESM r161 + GLTFLoader + OrbitControls + BufferGeometryUtils (patched imports)" || echo "No changes to commit"
           git push
