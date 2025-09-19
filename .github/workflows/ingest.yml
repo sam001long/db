@@ -4,7 +4,6 @@ on:
   workflow_dispatch: {}
   push:
     paths:
-      - "uploads/**"
       - "db/measurements.csv"
       - "tools/**"
 
@@ -25,48 +24,41 @@ jobs:
 
       - name: Install deps
         run: |
-          python -V
           python -m pip install --upgrade pip
           pip install pandas
 
-      - name: Show CSV head (if exists)
+      - name: Show CSV head
         run: |
           if [ -f "db/measurements.csv" ]; then
             echo "=== HEAD db/measurements.csv ==="
             head -n 10 db/measurements.csv || true
-            echo "=== COLS (Python quick check) ==="
-            python - << 'PY'
-import pandas as pd
-df = pd.read_csv("db/measurements.csv")
-print(list(df.columns))
-print(df.head(3).to_string(index=False))
-PY
           else
-            echo "db/measurements.csv not found"
+            echo "::error::db/measurements.csv not found"
+            exit 1
           fi
 
-      - name: Generate motion JSON (if measurements.csv exists)
+      - name: Generate motion JSON (simple schema)
         run: |
-          set -e
-          if [ -f "db/measurements.csv" ]; then
-            echo "Found db/measurements.csv → generating motion JSON..."
-            python tools/csv_to_motion_json.py
-            echo "=== motions dir ==="
-            ls -al docs/animation/motions || true
-          else
-            echo "::notice::db/measurements.csv not found — skipping conversion step."
-          fi
+          python tools/csv_to_motion_json.py
+          mkdir -p docs/animation/motions
+          mv docs/animation/motions/motion_index.json docs/animation/motions/motion_index.json 2>/dev/null || true
+          ls -al docs/animation/motions
 
-      - name: Build motion index (always)
+      - name: Build motion index
         run: |
-          python tools/build_motion_index.py
-          echo "=== index.json ==="
-          cat docs/animation/motions/index.json
+          cat > docs/animation/motions/index.json << 'JSON'
+          {
+            "items": [
+              { "file": "motion_index.json", "label": "index" }
+            ]
+          }
+          JSON
+          echo "== index.json ==" && cat docs/animation/motions/index.json
 
       - name: Commit outputs
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add docs/animation/motions/*.json || true
-          git commit -m "build: motions & index" || echo "no changes"
+          git commit -m "build: simple motion from measurements.csv" || echo "no changes"
           git push
