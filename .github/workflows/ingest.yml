@@ -1,74 +1,48 @@
-name: Ingest motion data & build web motions (docs)
+name: Ingest motion data & build web motions
 
 on:
+  workflow_dispatch: {}
   push:
     paths:
-      - 'uploads/**'
-      - 'ingest.py'
-      - 'ingest_config.yaml'
-      - 'tools/**'
-      - 'docs/animation/**'
-  workflow_dispatch:
+      - "uploads/**"
+      - "db/measurements.csv"
+      - "tools/**"
 
 permissions:
   contents: write
 
-concurrency:
-  group: ingest-and-build
-  cancel-in-progress: true
-
 jobs:
-  run:
+  ingest:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v4
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
       - name: Install deps
         run: |
           python -m pip install --upgrade pip
-          pip install pandas pyyaml openpyxl pyarrow
+          pip install pandas
 
-      - name: Ingest uploads -> db/measurements.csv/.parquet
-        run: python ingest.py
-
-      - name: Ensure Parquet exists (CSV -> Parquet)
+      # 這裡假設 db/measurements.csv 已由你既有流程產生
+      - name: Generate motion JSONs (Mixamo/Xbot mapping)
         run: |
-          python - <<'PY'
-          import pandas as pd, pathlib
-          csv = pathlib.Path('db/measurements.csv')
-          if csv.exists():
-              df = pd.read_csv(csv)
-              df.to_parquet('db/measurements.parquet', index=False)
-              print('Wrote db/measurements.parquet with', len(df), 'rows')
-          else:
-              print('CSV not found, skip parquet generation')
-          PY
+          python tools/csv_to_motion_json.py
+          ls -al docs/animation/motions
 
-      - name: Prepare docs motions dir
+      - name: Build motion index
         run: |
-          mkdir -p docs/animation/motions
-          ls -al docs/animation || true
+          python tools/build_motion_index.py
+          cat docs/animation/motions/index.json
 
-      - name: Convert canonical CSV to motion JSON (to docs/)
-        run: |
-          python tools/csv_to_motion_json.py db/measurements.csv docs/animation/motions
-
-      - name: Build motions index.json (to docs/)
-        run: |
-          python tools/build_motion_index.py docs/animation/motions > docs/animation/motions/index.json
-          echo "Motions index:"
-          cat docs/animation/motions/index.json || true
-
-      - name: Commit results (db/ and docs/animation/motions)
+      - name: Commit outputs
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add db docs/animation/motions || true
-          git commit -m "Update measurements and motion JSON [skip ci]" || echo "No changes to commit"
+          git add docs/animation/motions/*.json || true
+          git commit -m "build: motions & index (Mixamo mapping)" || echo "no changes"
           git push
