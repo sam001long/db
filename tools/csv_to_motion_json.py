@@ -3,10 +3,10 @@
 """
 把 db/measurements.csv 轉成 three.js AnimationClip JSON 檔（docs/animation/motions/*.json）
 - 針對 Xbot（Mixamo 命名）設計的骨頭對應
-- 找不到骨頭 → 直接略過該 track（避免 three 解析時噴 length 錯）
-- 支援兩種角度來源：
-  1) 長表：metric ∈ {angle_x, angle_y, angle_z} 或 {ax, ay, az}
-  2) 寬表：欄名如 RightArm_x / RightArm_y / RightArm_z
+- 找不到骨頭 → 略過該 track（避免 three 解析時噴 length 錯）
+- 支援兩種格式：
+  1) 長表：metric ∈ {angle_x, angle_y, angle_z} 或 {ax, ay, az} 或 axis 欄位 x/y/z
+  2) 寬表：RightArm_x / RightArm_y / RightArm_z + timestamp
 """
 
 from __future__ import annotations
@@ -15,30 +15,55 @@ from pathlib import Path
 from typing import Dict, Any, List, Tuple
 import pandas as pd
 
-ROOT = Path(__file__).resolve().parents[1]  # repo 根
+ROOT = Path(__file__).resolve().parents[1]
 CSV_PATH = ROOT / "db" / "measurements.csv"
 OUT_DIR = ROOT / "docs" / "animation" / "motions"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-# ===== Mixamo / Xbot 對應表（完整貼上） =====
-JOINT_ALIASES = {
-    "hip": "hips", "hips": "hips", "pelvis": "hips", "Hips": "hips",
-    "RightUpLeg": "right_up_leg", "RightLeg": "right_leg", "RightFoot": "right_foot",
-    "rightupleg": "right_up_leg", "rightleg": "right_leg", "rightfoot": "right_foot",
-    "LeftUpLeg": "left_up_leg", "LeftLeg": "left_leg", "LeftFoot": "left_foot",
-    "leftupleg": "left_up_leg", "leftleg": "left_leg", "leftfoot": "left_foot",
-    "RightShoulder": "right_shoulder", "RightArm": "right_arm",
-    "RightForeArm": "right_fore_arm", "RightHand": "right_hand",
-    "rightshoulder": "right_shoulder", "rightarm": "right_arm",
-    "rightforearm": "right_fore_arm", "righthand": "right_hand",
-    "LeftShoulder": "left_shoulder", "LeftArm": "left_arm",
-    "LeftForeArm": "left_fore_arm", "LeftHand": "left_hand",
-    "leftshoulder": "left_shoulder", "leftarm": "left_arm",
-    "leftforearm": "left_fore_arm", "lefthand": "left_hand",
-    "Spine": "spine", "Spine1": "spine1", "Spine2": "spine2",
-    "Neck": "neck", "Head": "head",
-}
+# ===== Mixamo / Xbot 對應 =====
 
+# 上游各種寫法 → 規格化 key
+JOINT_ALIASES: Dict[str, str] = {}
+
+def add_alias(canon: str, *names: str):
+    for n in names:
+        JOINT_ALIASES[n] = canon
+        JOINT_ALIASES[n.lower()] = canon
+        JOINT_ALIASES[n.replace(":", "")] = canon
+
+# 中軸
+add_alias("hips", "Hips","Hip","Pelvis","Pelvic","Root","hip","pelvis")
+add_alias("spine", "Spine","Spine0")
+add_alias("spine1","Spine1","LowerSpine","Spine_Lower")
+add_alias("spine2","Spine2","UpperSpine","Spine_Upper","Chest")
+add_alias("neck",  "Neck","neck")
+add_alias("head",  "Head","head")
+
+# 右腿（大腿/小腿/腳/趾）
+add_alias("right_up_leg", "RightUpLeg","RightThigh","R_Thigh","RightLegUpper","R_UpperLeg")
+add_alias("right_leg",    "RightLeg","RightShin","R_Shin","RightKnee","R_LowerLeg")
+add_alias("right_foot",   "RightFoot","R_Foot","Ankle_R","RightAnkle")
+add_alias("right_toe",    "RightToeBase","R_Toe","RightToe","Toe_R")
+
+# 左腿
+add_alias("left_up_leg",  "LeftUpLeg","LeftThigh","L_Thigh","LeftLegUpper","L_UpperLeg")
+add_alias("left_leg",     "LeftLeg","LeftShin","L_Shin","LeftKnee","L_LowerLeg")
+add_alias("left_foot",    "LeftFoot","L_Foot","Ankle_L","LeftAnkle")
+add_alias("left_toe",     "LeftToeBase","L_Toe","LeftToe","Toe_L")
+
+# 右臂（肩/上臂/前臂/手腕/手）
+add_alias("right_shoulder","RightShoulder","R_Shoulder")
+add_alias("right_arm",     "RightArm","RightUpperArm","R_Arm","R_UpperArm")
+add_alias("right_fore_arm","RightForeArm","RightLowerArm","R_ForeArm","R_LowerArm","RightElbow")
+add_alias("right_hand",    "RightHand","R_Hand","RightWrist","Wrist_R")
+
+# 左臂
+add_alias("left_shoulder", "LeftShoulder","L_Shoulder")
+add_alias("left_arm",      "LeftArm","LeftUpperArm","L_Arm","L_UpperArm")
+add_alias("left_fore_arm", "LeftForeArm","LeftLowerArm","L_ForeArm","L_LowerArm","LeftElbow")
+add_alias("left_hand",     "LeftHand","L_Hand","LeftWrist","Wrist_L")
+
+# 規格化 key → Mixamo 真實骨頭名
 BONE_MAP = {
     "hips": "mixamorigHips",
     "spine": "mixamorigSpine",
@@ -49,9 +74,11 @@ BONE_MAP = {
     "right_up_leg": "mixamorigRightUpLeg",
     "right_leg": "mixamorigRightLeg",
     "right_foot": "mixamorigRightFoot",
+    "right_toe": "mixamorigRightToeBase",
     "left_up_leg": "mixamorigLeftUpLeg",
     "left_leg": "mixamorigLeftLeg",
     "left_foot": "mixamorigLeftFoot",
+    "left_toe": "mixamorigLeftToeBase",
     "right_shoulder": "mixamorigRightShoulder",
     "right_arm": "mixamorigRightArm",
     "right_fore_arm": "mixamorigRightForeArm",
@@ -63,21 +90,13 @@ BONE_MAP = {
 }
 
 def canon_key(name: str) -> str:
-    if not name:
-        return ""
+    if not name: return ""
     k = str(name).strip()
-    if k in JOINT_ALIASES: return JOINT_ALIASES[k]
-    k2 = k.replace(":", "")
-    if k2 in JOINT_ALIASES: return JOINT_ALIASES[k2]
-    kl = k.lower()
-    return JOINT_ALIASES.get(kl, kl)
+    return JOINT_ALIASES.get(k) or JOINT_ALIASES.get(k.replace(":", "")) or JOINT_ALIASES.get(k.lower()) or k.lower()
 
-# --- 角度單位與四元數 ---
+# -------- 角度 → 四元數 --------
 def deg2rad(x: float) -> float: return float(x) * math.pi / 180.0
 def euler_xyz_to_quat(rx: float, ry: float, rz: float) -> Tuple[float, float, float, float]:
-    """
-    將 XYZ 歐拉（弧度）轉四元數，矩陣右手系、順序 X->Y->Z（對 Xbot/three 預設相容）
-    """
     cx, sx = math.cos(rx/2), math.sin(rx/2)
     cy, sy = math.cos(ry/2), math.sin(ry/2)
     cz, sz = math.cos(rz/2), math.sin(rz/2)
@@ -87,60 +106,49 @@ def euler_xyz_to_quat(rx: float, ry: float, rz: float) -> Tuple[float, float, fl
     qz = cx*cy*sz - sx*sy*cz
     return (qx, qy, qz, qw)
 
-def to_float(x): 
+def to_float(x):
     try: return float(x)
     except: return float("nan")
 
-# --- 讀取 measurements.csv 並組動作 ---
+# -------- 讀取/組裝 --------
 def load_measurements() -> pd.DataFrame:
     if not CSV_PATH.exists():
         raise FileNotFoundError(f"{CSV_PATH} 不存在")
     df = pd.read_csv(CSV_PATH)
     # 正規欄位名
-    cols = {c:c for c in df.columns}
-    for k in list(cols):
-        if k.strip().lower() == "time": cols[k] = "timestamp"
-        if k.strip().lower() == "joint_name": cols[k] = "joint"
-    df = df.rename(columns=cols)
-    if "timestamp" not in df or "joint" not in df:
-        raise ValueError("需要欄位 timestamp, joint；請確認清洗流程")
+    rename = {}
+    for c in df.columns:
+        lc = c.strip().lower()
+        if lc == "time": rename[c] = "timestamp"
+        if lc == "joint_name": rename[c] = "joint"
+    df = df.rename(columns=rename)
+    if "timestamp" not in df.columns or "joint" not in df.columns:
+        # 也允許 frame（假設 30fps）
+        if "frame" in df.columns:
+            df["timestamp"] = df["frame"].astype(float) / 30.0
+        else:
+            raise ValueError("需要欄位 timestamp/joint（或 frame/joint）")
     return df
 
 def assemble_long_format(df: pd.DataFrame) -> Dict[str, Dict[str, List[float]]]:
-    """
-    輸入長表：每列一個軸的角度。支援 metric: angle_x/angle_y/angle_z 或 ax/ay/az 或 angle + axis欄。
-    回傳 per-joint 的 {times, x, y, z}
-    """
-    df2 = df.copy()
-    # 嘗試找出 x/y/z 三種 metric
-    metric = df2.get("metric")
-    has_axis = "axis" in df2.columns
-    if metric is None and has_axis:
-        metric = df2["axis"]
-
-    # 標準化 metric 名
-    def norm_m(m): 
+    metric = df.get("metric") or df.get("axis")
+    if metric is None: return {}
+    def norm(m):
         m = str(m).lower()
-        if m in ("angle_x","ax","x"): return "x"
-        if m in ("angle_y","ay","y"): return "y"
-        if m in ("angle_z","az","z"): return "z"
+        if m in ("x","ax","angle_x"): return "x"
+        if m in ("y","ay","angle_y"): return "y"
+        if m in ("z","az","angle_z"): return "z"
         return None
-    if metric is None: 
-        # 不是長表
-        return {}
-
-    df2["mxyz"] = [norm_m(m) for m in metric]
-    df2 = df2.dropna(subset=["mxyz", "value"])
+    df2 = df.copy()
+    df2["mxyz"] = [norm(m) for m in metric]
+    df2 = df2.dropna(subset=["mxyz","value"])
     out: Dict[str, Dict[str, List[float]]] = {}
-    for (j), g in df2.groupby(["joint"]):
-        jkey = canon_key(j)
-        if jkey not in BONE_MAP: 
-            continue
-        rec = out.setdefault(jkey, {"times":[], "x":[], "y":[], "z":[]})
-        # 以 timestamp 聚合，確保同時間有 x/y/z
-        pivot = g.pivot_table(index="timestamp", columns="mxyz", values="value", aggfunc="last")
-        pivot = pivot.sort_index()
-        for t, row in pivot.iterrows():
+    for j,g in df2.groupby("joint"):
+        ck = canon_key(j)
+        if ck not in BONE_MAP: continue
+        piv = g.pivot_table(index="timestamp", columns="mxyz", values="value", aggfunc="last").sort_index()
+        rec = out.setdefault(ck, {"times":[], "x":[], "y":[], "z":[]})
+        for t,row in piv.iterrows():
             rec["times"].append(to_float(t))
             rec["x"].append(to_float(row.get("x")))
             rec["y"].append(to_float(row.get("y")))
@@ -148,96 +156,72 @@ def assemble_long_format(df: pd.DataFrame) -> Dict[str, Dict[str, List[float]]]:
     return out
 
 def assemble_wide_format(df: pd.DataFrame) -> Dict[str, Dict[str, List[float]]]:
-    """
-    輸入寬表：欄名像 RightArm_x / RightArm_y / RightArm_z，另有 timestamp
-    """
     if "timestamp" not in df.columns: return {}
-    xyz_cols = [c for c in df.columns if c.endswith(("_x","_y","_z"))]
-    if not xyz_cols: return {}
-    # 以欄名前綴辨識關節
-    prefix = sorted(set(c[:-2] for c in xyz_cols))
+    xyz = [c for c in df.columns if c.endswith(("_x","_y","_z"))]
+    if not xyz: return {}
+    prefixes = sorted(set(c[:-2] for c in xyz))
     out: Dict[str, Dict[str, List[float]]] = {}
-    df2 = df.sort_values("timestamp")
-    times = [to_float(t) for t in df2["timestamp"].tolist()]
-    for p in prefix:
-        jkey = canon_key(p)
-        if jkey not in BONE_MAP: 
-            continue
-        rec = out.setdefault(jkey, {"times":times.copy(), "x":[], "y":[], "z":[]})
-        rec["x"] = [to_float(v) for v in df2.get(f"{p}_x", []).tolist()]
-        rec["y"] = [to_float(v) for v in df2.get(f"{p}_y", []).tolist()]
-        rec["z"] = [to_float(v) for v in df2.get(f"{p}_z", []).tolist()]
+    times = [to_float(t) for t in df.sort_values("timestamp")["timestamp"].tolist()]
+    for p in prefixes:
+        ck = canon_key(p)
+        if ck not in BONE_MAP: continue
+        g = df.sort_values("timestamp")
+        rec = out.setdefault(ck, {"times":times.copy(), "x":[], "y":[], "z":[]})
+        rec["x"] = [to_float(v) for v in g.get(f"{p}_x", []).tolist()]
+        rec["y"] = [to_float(v) for v in g.get(f"{p}_y", []).tolist()]
+        rec["z"] = [to_float(v) for v in g.get(f"{p}_z", []).tolist()]
     return out
 
 def build_clip(tracks_xyz: Dict[str, Dict[str, List[float]]], unit_hint: str = "deg") -> Dict[str, Any]:
-    """
-    將每個關節的 x/y/z 角度（度或弧度）轉成 Quaternion tracks，輸出 Three.js AnimationClip JSON。
-    """
-    clip = {"name": "clip", "tracks": []}
-    for ckey, rec in tracks_xyz.items():
-        node = BONE_MAP.get(ckey)
-        if not node:  # 安全略過未對應骨頭
-            continue
+    clip = {"name":"clip", "tracks":[]}
+    for ck, rec in tracks_xyz.items():
+        node = BONE_MAP.get(ck)
+        if not node: continue
         times = [float(t) for t in rec["times"] if pd.notna(t)]
-        if not times: 
-            continue
-        # 三軸角度
-        xs = rec["x"]; ys = rec["y"]; zs = rec["z"]
-        # 單位處理
-        if unit_hint.lower() in ("deg","degree","degrees"):
-            rx = [deg2rad(v) for v in xs]
-            ry = [deg2rad(v) for v in ys]
-            rz = [deg2rad(v) for v in zs]
+        xs,ys,zs = rec["x"], rec["y"], rec["z"]
+        if unit_hint.lower().startswith("deg"):
+            rx = [deg2rad(v) for v in xs]; ry=[deg2rad(v) for v in ys]; rz=[deg2rad(v) for v in zs]
         else:
-            rx, ry, rz = xs, ys, zs
-        # times/values 長度對齊（防呆）
+            rx,ry,rz = xs,ys,zs
         n = min(len(times), len(rx), len(ry), len(rz))
-        if n == 0: 
-            continue
-        times = times[:n]; rx = rx[:n]; ry = ry[:n]; rz = rz[:n]
+        if n<=0: continue
+        times = times[:n]; rx=rx[:n]; ry=ry[:n]; rz=rz[:n]
         values: List[float] = []
         for i in range(n):
-            qx,qy,qz,qw = euler_xyz_to_quat(rx[i], ry[i], rz[i])
+            qx,qy,qz,qw = euler_xyz_to_quat(rx[i],ry[i],rz[i])
             values.extend([qx,qy,qz,qw])
-        track = {
+        clip["tracks"].append({
             "name": f"{node}.quaternion",
             "type": "quaternion",
             "times": times,
             "values": values
-        }
-        clip["tracks"].append(track)
+        })
     return clip
 
 def main():
     df = load_measurements()
-
-    # 推測單位（若有 unit 欄）
     unit_hint = "deg"
-    if "unit" in df.columns:
+    if "unit" in df.columns and not df["unit"].dropna().empty:
         u = str(df["unit"].dropna().iloc[0]).lower()
         unit_hint = "rad" if "rad" in u else "deg"
 
-    # 嘗試兩種格式
-    tracks = assemble_long_format(df)
+    tracks = assemble_long_format(df) or assemble_wide_format(df)
     if not tracks:
-        tracks = assemble_wide_format(df)
-    if not tracks:
-        raise RuntimeError("辨識不到角度欄位格式（需要 angle_x/angle_y/angle_z 或 ..._x/_y/_z）")
+        raise RuntimeError("辨識不到角度欄位（需 angle_x/y/z 或 *_x/_y/_z）")
 
     clip = build_clip(tracks, unit_hint=unit_hint)
 
-    # 檔名：motion_YYYYmmdd_HHMMSS.json（若 df 有 session/activity 可帶入）
     label = "index"
-    if "session_id" in df.columns and pd.notna(df["session_id"]).any():
+    if "session_id" in df.columns and not df["session_id"].dropna().empty:
         label = str(df["session_id"].dropna().iloc[0])
-    elif "activity" in df.columns and pd.notna(df["activity"]).any():
+    elif "activity" in df.columns and not df["activity"].dropna().empty:
         label = str(df["activity"].dropna().iloc[0])
 
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
     out_path = OUT_DIR / f"motion_{label}.json"
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(clip, f, ensure_ascii=False)
-
-    print(f"[OK] wrote {out_path}")
+    print(f"[OK] wrote {out_path} with {len(clip['tracks'])} tracks")
 
 if __name__ == "__main__":
     main()
